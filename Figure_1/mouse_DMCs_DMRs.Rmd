@@ -1,0 +1,412 @@
+---
+title: "mouse_DMRs"
+output: pdf_document
+date: '2025-08-02'
+author: 'Tim Peters; Ksenia Skvortsova'
+---
+```{r}
+library(data.table)
+library(GenomicRanges)
+library(DMRcate)
+library(bsseq)
+library(plyr)
+library(limma)
+library(ggplot2)
+```
+
+###---load in bedgraphs
+```{r}
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/bedGraph/")
+bedgraphs <- list.files()
+ids <- gsub("_R1_paired_sorted_dedup.svg_CpG.bedGraph", "", bedgraphs)
+
+samples <- list()
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/bedGraph/")
+for (i in bedgraphs){
+  tab <- fread(i)
+  #Adding +1 to the start position for cytosines, assuming zero-based bedGraph
+  tab <-  GRanges(tab[[1]], IRanges(tab[[2]] + 1, width=1), C=tab[[5]], cov=tab[[5]]+tab[[6]])
+  samples <- c(samples, tab)
+  print(i)
+}
+
+
+#bigtable <- Reduce(union, samples)
+bigtable <- Reduce(GenomicRanges::union, samples)
+
+for(i in 1:length(samples)){
+  m <- match(samples[[i]], bigtable)
+  c <- rep(0, length(bigtable))
+  c[m] <- samples[[i]]$C
+  elementMetadata(bigtable)[paste0(ids[i], ".C")] <- c
+  cov <- rep(0, length(bigtable))
+  cov[m] <- samples[[i]]$cov
+  elementMetadata(bigtable)[paste0(ids[i], ".cov")] <- cov
+  message(i)
+}
+
+```
+
+
+###---Remove scaffolds with only 1 CpG
+```{r}
+chromcounts <- table(seqnames(bigtable))
+singletons <- names(chromcounts)[chromcounts==1]
+bigtable <- bigtable[!seqnames(bigtable) %in% singletons]
+
+#save(bigtable, file="dunnart_bigtable.RData")
+
+#colnames(mcols(bigtable)) <- gsub("dunnart_", "", colnames(mcols(bigtable)))
+
+meta <- data.frame(ID=gsub("", "", ids))
+meta$C <- paste0(meta$ID, ".C")
+meta$cov <- paste0(meta$ID, ".cov")
+meta$timepoint <- gsub("^([^_]*_[^_]*)_.*", "\\1", meta$ID) #removes the rep1/rep2
+
+meta$col <- as.character(mapvalues(meta$timepoint, 
+                                      c("mouse_2cell","mouse_4cell", "mouse_E35", "mouse_E65", "mouse_E75", "mouse_ICM", "mouse_oocyte", "mouse_sperm"), 
+                                      c("black","blue", "deepskyblue", "coral", "red", "maroon", "orange", "green")))
+rownames(meta) <- meta$ID
+
+
+
+#keep <- rowSums(as.matrix(values(tmp[,grep("cov$", colnames(values(tmp)))]))) > 0
+#bigtable <- tmp[keep]
+
+coverage <- values(bigtable[,meta$cov])
+numcovered <- apply(coverage, 2, function (x) sum(x != 0))
+pccovered <- numcovered*100/length(bigtable)
+```
+
+
+###---DMRs
+###---Create BSSeq object for DMRcate
+```{r}
+coverage <- as.matrix(values(bigtable[,meta$cov]))
+meth <- as.matrix(values(bigtable[,meta$C]))
+colnames(coverage) <- colnames(meth) <- meta$ID
+
+bsseq_data <- BSseq(chr = seqnames(bigtable), pos = start(bigtable), M = meth, Cov = coverage, sampleNames = meta$ID)
+pData(bsseq_data) <- meta
+
+timepoint <- meta$timepoint
+design <- model.matrix(~0 + timepoint)
+colnames(design) <- gsub("timepoint", "", colnames(design))
+methdesign <- edgeR::modelMatrixMeth(design)
+cont.mat <- makeContrasts(ICMvssperm=mouse_ICM-mouse_sperm,
+                          mouse_E35vssperm=mouse_E35-mouse_sperm,
+                          E65vsE35=mouse_E65-mouse_E35,
+                          E65vsICM=mouse_E65-mouse_ICM,
+                          levels=methdesign)
+
+```
+
+
+
+###---DMC Analysis: ICMvssperm
+```{r}
+library(DMRcate)
+library(ggplot2)
+
+# Identify DMCs
+seq_annot <- sequencing.annotate(bsseq_data, methdesign, all.cov = TRUE,
+                                contrasts = TRUE, cont.matrix = cont.mat,
+                                coef = "ICMvssperm", fdr = 0.05)
+dmrcate.res <- dmrcate(seq_annot, C = 2, min.cpgs = 1)
+
+# Extract all CpGs:
+gr <- seq_annot@ranges
+# Extract significant DMCs
+gr_sig <- seq_annot@ranges[seq_annot@ranges$is.sig == "TRUE"]
+
+# Calculate methylation scores
+CpG <- c(bigtable, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bigtable)[,-c(1:5)]  
+
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub("\\.(C|cov)$", "", colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+
+
+mc_score <- mapply(function(a, b){mcols(CpG)[, a] / mcols(CpG)[, b]}, a = col, b = col+1) 
+mc_score<-as.data.frame(mc_score)
+mcols(CpG) <- NULL
+mcols(CpG) <- cbind(mcols(CpG), mc_score)
+
+# Calculate methylation differences
+CpG_sig <- subsetByOverlaps(CpG, gr_sig)
+CpG_sig$delta <- (CpG_sig$mouse_ICM_rep1 + CpG_sig$mouse_ICM_rep2)/2 - 
+                 (CpG_sig$mouse_sperm_rep1 + CpG_sig$mouse_sperm_rep1 + CpG_sig$mouse_sperm_rep3)/3
+
+# Filter scaffolds and calculate percentages
+puc_lambda <- c("pUC19", "chrLambda")
+CpG_filt <- CpG_sig[!seqnames(CpG_sig) %in% puc_lambda]
+gr_filt <- gr[!seqnames(gr) %in% puc_lambda]
+total_cpgs <- length(gr_filt) #total number of CpGs with min cov of 1 in two samples which are being compared - 2450837
+
+# Define diff mC thresholds and calculate percentages
+calculate_percentages <- function(data, total, thresholds = c(0.2, 0.5)) {
+  results <- list()
+  for (thresh in thresholds) {
+    hypo <- sum(data$delta <= -thresh) / total * 100
+    hyper <- sum(data$delta >= thresh) / total * 100
+    results[[paste0(thresh * 100, "per")]] <- c(hypo = hypo, hyper = hyper)
+  }
+  return(results)
+}
+
+percentages <- calculate_percentages(as.data.frame(CpG_filt), total_cpgs)
+
+# Create visualization function
+plot_dmc_percentages <- function(hypo_pct, hyper_pct, threshold, filename) {
+  df <- data.frame(
+    per_of_CpGs = c(hypo_pct, hyper_pct),
+    DMC_type = c("Hypomethylated", "Hypermethylated"),
+    design = "ICM vs sperm"
+  )
+  
+  p <- ggplot(df, aes(x = design, y = per_of_CpGs, fill = DMC_type)) +
+    geom_col(position = "stack") +
+    geom_text(aes(label = paste0(round(per_of_CpGs, 2), "%")), 
+              position = position_stack(vjust = 0.5), color = "white", fontface = "bold") +
+    labs(title = paste0("DMCs (±", threshold, "%)"),
+         subtitle = "ICM vs Sperm",
+         y = "Percentage of CpGs", x = NULL, fill = "Direction") +
+    scale_y_continuous(limits = c(0, 100), labels = function(x) paste0(x, "%")) +
+    scale_fill_manual(values = c("Hypomethylated" = "#2166AC", "Hypermethylated" = "#D73027")) +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5),
+          axis.text.x = element_blank(),
+          legend.position = "bottom")
+  
+  ggsave(filename, p, width = 1.5, height = 5, units = "in", dpi = 300)
+  return(p)
+}
+
+# Generate plots
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/figures/")
+p1 <- plot_dmc_percentages(percentages$`20per`["hypo"], percentages$`20per`["hyper"], 
+                          20, "DMCs_sperm_vs_ICM_20pct_threshold.pdf")
+p2 <- plot_dmc_percentages(percentages$`50per`["hypo"], percentages$`50per`["hyper"], 
+                          50, "DMCs_sperm_vs_ICM_50pct_threshold.pdf")
+
+
+# Save results
+saveRDS(percentages, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/source_data/mouse_DMC_percentages_sperm_vs_ICM.rds")
+saveRDS(as.data.frame(CpG_filt), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate//source_data/mouse_DMC_mC_score_sperm_vs_ICM_sign.rds")
+
+# Export BED files
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/source_data")
+rtracklayer::export(gr_filt, "SpermvsICM_background.bed")
+rtracklayer::export(gr_sig, "SpermvsICM_significant_DMCs.bed")
+rtracklayer::export(CpG_filt[CpG_filt$delta <= -0.2], "SpermvsICM_hypomethylated_20pct.bed")
+rtracklayer::export(CpG_filt[CpG_filt$delta >= 0.2], "SpermvsICM_hypermethylated_20pct.bed")
+```
+
+###---DMR Analysis: ICMvssperm
+
+```{r}
+ICMvssperm.DMRs <- GRanges(dmrcate.res@coord, 
+                            values=data.frame(no.cpgs=dmrcate.res@no.cpgs,
+                                              min.smoothed.fdr=dmrcate.res@min_smoothed_fdr,
+                                              Stouffer=dmrcate.res@Stouffer,
+                                              HMFDR=dmrcate.res@HMFDR,
+                                              Fisher=dmrcate.res@Fisher,
+                                              maxdiff=dmrcate.res@maxdiff,
+                                              meandiff=dmrcate.res@meandiff))
+colnames(values(ICMvssperm.DMRs)) <- gsub("values.", "", colnames(values(ICMvssperm.DMRs)))
+ICMvssperm.DMRs <- ICMvssperm.DMRs[ICMvssperm.DMRs$no.cpgs >=5 & ICMvssperm.DMRs$min.smoothed.fdr < 0.05,]
+write.csv(as.data.frame(ICMvssperm.DMRs), file="/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/DMRs/mouse_ICM_vs_sperm.DMRs.csv", row.names = F)
+saveRDS(as.data.frame(ICMvssperm.DMRs), file="/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/DMRs/mouse_ICM_vs_sperm.DMRs.rds")
+```
+
+
+```{r}
+saveRDS(bigtable, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/bigtable/bigtable_all.tsv")
+CpG <- c(bigtable, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bigtable)[,-c(1:5)]  
+
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub("\\.(C|cov)$", "", colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+
+ICMvssperm.DMRs <- subsetByOverlaps(ICMvssperm.DMRs, CpG)
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, ICMvssperm.DMRs, a, b, minCov=1)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+mcols(ICMvssperm.DMRs) <- cbind(mcols(ICMvssperm.DMRs), x)
+ICMvssperm.DMRs$delta_ICM_sperm <- (ICMvssperm.DMRs$mouse_ICM_rep1 + ICMvssperm.DMRs$mouse_ICM_rep2)/2 - (ICMvssperm.DMRs$mouse_sperm_rep1+ICMvssperm.DMRs$mouse_sperm_rep2+ICMvssperm.DMRs$mouse_sperm_rep3)/3
+
+
+ICMvssperm.DMRs$DMR_status <- ifelse(ICMvssperm.DMRs$delta_ICM_sperm <= -0.3, "ICM_hypo", ifelse(ICMvssperm.DMRs$delta_ICM_sperm >= 0.3, "ICM_hyper", "NA"))
+table(ICMvssperm.DMRs$DMR_status)
+saveRDS(as.data.frame(ICMvssperm.DMRs), file="/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/DMRs/mouse_ICM_vs_sperm.DMRs_delta.rds")
+
+#ICM_hyper  ICM_hypo        NA 
+#      422     95238      3863 
+
+ICMvssperm.DMRs_hypo <- ICMvssperm.DMRs[which(ICMvssperm.DMRs$DMR_status=="ICM_hypo"),]
+ICMvssperm.DMRs_hyper <- ICMvssperm.DMRs[which(ICMvssperm.DMRs$DMR_status=="ICM_hyper"),]
+
+export(ICMvssperm.DMRs_hypo, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/DMRs/mouse_ICM_vs_sperm.DMRs_hypo0.3.bed")
+export(ICMvssperm.DMRs_hyper, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/DMRs/mouse_ICM_vs_sperm.DMRs_hyper0.3.bed")
+```
+
+
+
+
+###---DMC Analysis: E65vsICM
+```{r}
+library(DMRcate)
+library(ggplot2)
+
+# Identify DMCs
+seq_annot <- sequencing.annotate(bsseq_data, methdesign, all.cov = TRUE,
+                                contrasts = TRUE, cont.matrix = cont.mat,
+                                coef = "E65vsICM", fdr = 0.05)
+dmrcate.res <- dmrcate(seq_annot, C = 2, min.cpgs = 1)
+
+# Extract all CpGs:
+gr <- seq_annot@ranges
+# Extract significant DMCs
+gr_sig <- seq_annot@ranges[seq_annot@ranges$is.sig == "TRUE"]
+
+# Calculate methylation scores
+CpG <- c(bigtable, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bigtable)[,-c(1:5)]  
+
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub("\\.(C|cov)$", "", colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+
+
+mc_score <- mapply(function(a, b){mcols(CpG)[, a] / mcols(CpG)[, b]}, a = col, b = col+1) 
+mc_score<-as.data.frame(mc_score)
+mcols(CpG) <- NULL
+mcols(CpG) <- cbind(mcols(CpG), mc_score)
+
+# Calculate methylation differences
+CpG_sig <- subsetByOverlaps(CpG, gr_sig)
+CpG_sig$delta <- (CpG_sig$mouse_E65_rep1 + CpG_sig$mouse_E65_rep2_spikeIn)/2 - (CpG_sig$mouse_ICM_rep1 + CpG_sig$mouse_ICM_rep2)/2
+
+# Filter scaffolds and calculate percentages
+puc_lambda <- c("pUC19", "chrLambda")
+CpG_filt <- CpG_sig[!seqnames(CpG_sig) %in% puc_lambda]
+gr_filt <- gr[!seqnames(gr) %in% puc_lambda]
+total_cpgs <- length(gr_filt) #total number of CpGs with min cov of 1 in two samples which are being compared - 
+
+# Define diff mC thresholds and calculate percentages
+calculate_percentages <- function(data, total, thresholds = c(0.2, 0.5)) {
+  results <- list()
+  for (thresh in thresholds) {
+    hypo <- sum(data$delta <= -thresh) / total * 100
+    hyper <- sum(data$delta >= thresh) / total * 100
+    results[[paste0(thresh * 100, "per")]] <- c(hypo = hypo, hyper = hyper)
+  }
+  return(results)
+}
+
+percentages <- calculate_percentages(as.data.frame(CpG_filt), total_cpgs)
+
+# Create visualization function
+plot_dmc_percentages <- function(hypo_pct, hyper_pct, threshold, filename) {
+  df <- data.frame(
+    per_of_CpGs = c(hypo_pct, hyper_pct),
+    DMC_type = c("Hypomethylated", "Hypermethylated"),
+    design = "E6.5 vs ICM"
+  )
+  
+  p <- ggplot(df, aes(x = design, y = per_of_CpGs, fill = DMC_type)) +
+    geom_col(position = "stack") +
+    geom_text(aes(label = paste0(round(per_of_CpGs, 2), "%")), 
+              position = position_stack(vjust = 0.5), color = "white", fontface = "bold") +
+    labs(title = paste0("DMCs (±", threshold, "%)"),
+         subtitle = "E6.5 vs ICM",
+         y = "Percentage of CpGs", x = NULL, fill = "Direction") +
+    scale_y_continuous(limits = c(0, 100), labels = function(x) paste0(x, "%")) +
+    scale_fill_manual(values = c("Hypomethylated" = "#2166AC", "Hypermethylated" = "#D73027")) +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5),
+          axis.text.x = element_blank(),
+          legend.position = "bottom")
+  
+  ggsave(filename, p, width = 1.5, height = 5, units = "in", dpi = 300)
+  return(p)
+}
+
+# Generate plots
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/figures/")
+p1 <- plot_dmc_percentages(percentages$`20per`["hypo"], percentages$`20per`["hyper"], 
+                          20, "DMCs_ICM_vs_E6.5_20pct_threshold.pdf")
+p2 <- plot_dmc_percentages(percentages$`50per`["hypo"], percentages$`50per`["hyper"], 
+                          50, "DMCs_ICM_vs_E6.5_50pct_threshold.pdf")
+
+
+# Save results
+saveRDS(percentages, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/source_data/mouse_DMC_percentages_ICM_vs_E6.5.rds")
+saveRDS(as.data.frame(CpG_filt), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate//source_data/mouse_DMC_mC_score_ICM_vs_E6.5_sign.rds")
+
+# Export BED files
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/source_data")
+rtracklayer::export(gr_filt, "E65vsICM_background.bed")
+rtracklayer::export(gr_sig, "E65vsICM_significant_DMCs.bed")
+rtracklayer::export(CpG_filt[CpG_filt$delta <= -0.2], "E65vsICM_hypomethylated_20pct.bed")
+rtracklayer::export(CpG_filt[CpG_filt$delta >= 0.2], "E65vsICM_hypermethylated_20pct.bed")
+```
+
+###---DMR Analysis: E65vsICM
+
+```{r}
+E65vsICM.DMRs <- GRanges(dmrcate.res@coord, 
+                            values=data.frame(no.cpgs=dmrcate.res@no.cpgs,
+                                              min.smoothed.fdr=dmrcate.res@min_smoothed_fdr,
+                                              Stouffer=dmrcate.res@Stouffer,
+                                              HMFDR=dmrcate.res@HMFDR,
+                                              Fisher=dmrcate.res@Fisher,
+                                              maxdiff=dmrcate.res@maxdiff,
+                                              meandiff=dmrcate.res@meandiff))
+colnames(values(E65vsICM.DMRs)) <- gsub("values.", "", colnames(values(E65vsICM.DMRs)))
+E65vsICM.DMRs <- E65vsICM.DMRs[E65vsICM.DMRs$no.cpgs >=5 & E65vsICM.DMRs$min.smoothed.fdr < 0.05,]
+write.csv(as.data.frame(E65vsICM.DMRs), file="/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/DMRs/mouse_E6.5_vs_ICM.DMRs.csv", row.names = F)
+saveRDS(as.data.frame(E65vsE35.DMRs), file="/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/DMRs/mouse_E6.5_vs_ICM.DMRs.rds")
+```
+
+
+```{r}
+
+CpG <- c(bigtable, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bigtable)[,-c(1:5)]  
+
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub("\\.(C|cov)$", "", colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+
+E65vsICM.DMRs <- subsetByOverlaps(E65vsICM.DMRs, CpG)
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, E65vsICM.DMRs, a, b, minCov=1)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+mcols(E65vsICM.DMRs) <- cbind(mcols(E65vsICM.DMRs), x)
+
+E65vsICM.DMRs$delta_E6.5_ICM <- (E65vsICM.DMRs$mouse_E65_rep1 + E65vsICM.DMRs$mouse_E65_rep2_spikeIn)/2 - (E65vsICM.DMRs$mouse_ICM_rep1 + E65vsICM.DMRs$mouse_ICM_rep2)/2
+
+
+E65vsICM.DMRs$DMR_status <- ifelse(E65vsICM.DMRs$delta_E6.5_ICM <= -0.3, "E6.5_hypo", ifelse(E65vsICM.DMRs$delta_E6.5_ICM >= 0.3, "E6.5_hyper", "NA"))
+table(E65vsICM.DMRs$DMR_status)
+saveRDS(as.data.frame(E65vsICM.DMRs), file="/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/DMRs/mouse_E6.5_vs_ICM_DMRs_delta.rds")
+
+#E6.5_hyper  E6.5_hypo         NA 
+#     54245          9        254 
+
+E65vsICM.DMRs_hypo <- E65vsICM.DMRs[which(E65vsICM.DMRs$DMR_status=="E6.5_hypo"),]
+E65vsICM.DMRs_hyper <- E65vsICM.DMRs[which(E65vsICM.DMRs$DMR_status=="E6.5_hyper"),]
+
+export(E65vsICM.DMRs_hypo, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/DMRs/mouse_E6.5_vs_ICM.DMRs_hypo0.3.bed")
+export(E65vsICM.DMRs_hyper, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/mouse/DMRs_DMRcate/DMRs/mouse_E6.5_vs_ICM.DMRs_hyper0.3.bed")
+```
+
+
+
+
