@@ -1,0 +1,505 @@
+---
+title: "dunnart_mC"
+output: html_document
+date: "2024-02-28"
+author: "Ksenia Skvortsova"
+---
+
+```{r}
+library(data.table)
+library(rtracklayer)
+library(factoextra)
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+overlapSums <- function(x, y, z, na.rm=FALSE) {
+  stopifnot(class(x)=="GRanges")
+  stopifnot(class(y)=="GRanges")
+  stopifnot(class(z)=="numeric" | class(z)=="integer")
+  stopifnot(length(x)==length(z))
+  ov <- as.matrix(findOverlaps(y, x))
+  ovSums <- rep(as.numeric(NA), length(y))
+  ovSums[unique(ov[,1])] <- viewSums(Views(z[ov[,2]], ranges(Rle(ov[,1]))), na.rm=na.rm)
+  ovSums
+}
+
+
+overlapRatios <- function(x, y, C, cov, minCov, na.rm=FALSE) {
+  C.sum <- overlapSums(x, y, values(x)[[C]], na.rm=na.rm)
+  cov.sum <- overlapSums(x, y, values(x)[[cov]], na.rm=na.rm)
+  ov_all <- as.data.frame(findOverlaps(y, x)) 
+  number_of_CpGs <- rle(ov_all[,1])$lengths #--- total number of CpGs per region
+  CpG_ov_regions <- x[ov_all$subjectHits] #--- coverage of CpGs overlapping regions
+  ov_all$cov <- as.numeric(values(CpG_ov_regions)[[cov]])
+  ov_all$cov_binary<-as.numeric(ifelse(ov_all$cov>=minCov, 1, 0))
+  number_of_CpGs_minCov <- as.numeric(tapply(ov_all$cov_binary, ov_all$queryHits, FUN=sum))
+  CpGs_covered <- as.numeric(number_of_CpGs_minCov) / as.numeric(number_of_CpGs)
+  rat <- as.data.frame(C.sum/cov.sum)
+  rat_cov<-cbind(rat, CpGs_covered)
+  colnames(rat_cov) <- c("rat", "CpGs_covered")
+  rat_cov$rat[rat_cov$CpGs_covered < 0.5] <- NA
+  rat_cov[,1]
+}
+```
+
+
+```{r}
+repeats <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Annotations/repeats_Andre_v2/filtered_annotations/merged_filtered.gff")
+repeats <- as.data.frame(repeats)
+repeats$RepeatClass <- sub(".*RepeatClass=([^;]+);.*", "\\1", repeats$V9)
+repeats$RepeatClass <- gsub("/", "_", repeats$RepeatClass)
+
+repeats_gr <- GRanges(seqnames = repeats$V1, ranges=IRanges(start=repeats$V4, end=repeats$V5), strand=repeats$V7, RepeatClass=repeats$RepeatClass)
+```
+
+###---load the bigtable
+```{r}
+# load in dunnart methylomes bigtable
+#bt <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq/bigtable/bigtable.tsv") #10250596
+bt <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mapping/bigtable/bigtable.tsv") #4761416
+bt <- as.data.frame(bt)
+
+bt$start <- as.numeric(as.character(bt$start))
+
+
+bt <- bt[complete.cases(bt$start),]
+
+#convert .C and .cov into numeric 
+cols_to_convert <- grep("\\.(C|cov)$", names(bt))
+
+# Convert to numeric
+bt[cols_to_convert] <- lapply(bt[cols_to_convert], as.numeric)
+
+#re-order
+
+bt <- bt[,c(1:2, 23:26, 15:18, 3:14, 19:22)]
+
+saveRDS(bt, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq/bigtable/bigtable.rds")
+
+bt <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mapping/bigtable/bigtable.rds")
+bt <- GRanges(seqnames = bt$chr, ranges = IRanges(start=bt$start, width = 2), strand = "*", bt[, c(3:ncol(bt))])
+
+
+CpG <- c(bt, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bt)[,-c(1:5)]  
+```
+
+## Non-conversion rate
+#---Lambda DNA
+```{r}
+lambda <- bt[grep("chrLambda", seqnames(bt)),] # replace with the actual lambda name in your genome
+puc19 <- bt[grep("pUC19", seqnames(bt)),] # replace with the actual pUC19 name in your genome
+
+lambda <- as.data.frame(lambda)
+lambda$start <- as.numeric(lambda$start)
+lambda_CpGs <- GRanges(lambda$seqnames, IRanges(lambda$start, width=2), strand="*")
+values(lambda_CpGs) <- as.data.frame(lambda)[,-c(1:5)]
+
+col<-seq(1, ncol(mcols(lambda_CpGs)), by=2)
+names <- sub('\\..*', '', colnames(mcols(lambda_CpGs))[col])
+col <- setNames(col, names)
+
+mc_score <- mapply(function(a, b){as.numeric(mcols(lambda_CpGs)[, a]) / as.numeric(mcols(lambda_CpGs)[, b])}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+mc_score<-as.data.frame(mc_score)
+
+lambda_m <- melt(mc_score, measure.vars = colnames(mc_score))
+mean <- ddply(lambda_m, "variable", summarise, rating.mean=mean(value))
+mean$rating.mean <- mean$rating.mean*100
+colnames(mean) <- c("sample", "non-conversion_rate")
+mean
+
+#             sample non-conversion_rate
+#1  dunnart_sperm_r1           0.8347080
+#2  dunnart_sperm_r2           0.3128002
+#3     dunnart_d9_r1           0.1597572
+#4     dunnart_d9_r2           0.1503406
+#5    dunnart_d10_r1           1.3056964
+#6    dunnart_d10_r2           2.2541214
+#7    dunnart_d12_r1           2.1921685
+#8    dunnart_d12_r2           1.7731705
+#9    dunnart_d13_r1           2.0817841
+#10   dunnart_d13_r2           0.1469457
+#11 dunnart_liver_r1           2.7406672
+#12 dunnart_liver_r2           1.7055739
+```
+
+
+## Coverage
+###---sequencing coverage metrics (mean coverage)
+```{r coverage mean, echo=FALSE}
+bt_df <- as.data.frame(bt)
+
+cov <- as.data.frame(bt_df[, grep(".cov$", colnames(bt_df))])
+colnames(cov) <- colnames(bt_df)[grep(".cov$", colnames(bt_df))]
+cov_m <- melt(cov, measure.vars = colnames(cov))
+
+# Coverage summary
+mean <- ddply(cov_m, "variable", summarise, rating.mean=mean(value))
+colnames(mean) <- c("sample", "coverage")
+mean
+
+#                 sample  coverage
+#1  dunnart_sperm_r1.cov  8.606067
+#2  dunnart_sperm_r2.cov 11.538921
+#3     dunnart_d9_r1.cov  7.617104
+#4     dunnart_d9_r2.cov  9.208456
+#5    dunnart_d10_r1.cov  5.571479
+#6    dunnart_d10_r2.cov  5.985319
+#7    dunnart_d12_r1.cov  5.243102
+#8    dunnart_d12_r2.cov  4.925146
+#9    dunnart_d13_r1.cov  4.922352
+#10   dunnart_d13_r2.cov  7.524519
+#11 dunnart_liver_r1.cov  4.835049
+#12 dunnart_liver_r2.cov  6.961856
+```
+
+
+###---mC barplots
+```{r}
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub('\\..*', '', colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+
+mc_score <- mapply(function(a, b){as.numeric(mcols(CpG)[, a]) / as.numeric(mcols(CpG)[, b])}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+mc_score<-as.data.frame(mc_score)
+
+
+z <- mc_score
+
+
+z[1:ncol(z)] <- lapply(z[1:ncol(z)], function(a) cut(a, breaks=c(0, 0.001, 0.2, 0.8, 1), include.lowest = TRUE))
+
+
+table <- lapply(z[1:ncol(z)], function(a) table(a)/length(z[[1]])*100)
+table_df <- setNames(do.call(rbind.data.frame, table), c("x0", "x0-20", "x20-80", "x80-100"))
+rownames(table_df) <- colnames(z)
+
+
+table_df <- as.data.frame(t(table_df))
+
+
+table_df$id <- rownames(table_df)
+table_df$id<-factor(table_df$id, levels=c("x0", "x0-20", "x20-80", "x80-100"))
+
+
+table_df.m <- melt(table_df, id.var="id")
+
+
+saveRDS(table_df.m, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/source_data/dunnart_mC_barplot.rds")
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/figures/")
+pdf("Percentage of CpGs with diff meth levels dunnart.pdf", useDingbats=FALSE, width=8, height=6) 
+print(ggplot(table_df.m, aes(x = variable, y = value, fill = factor(id))) + 
+  geom_bar(stat="identity", position = position_fill(reverse = TRUE)) +
+    scale_fill_brewer(palette = "RdBu", direction=-1) +
+  xlab("") +
+  ylab("Percentage of CpGs") +
+  theme_bw())
+dev.off()
+```
+
+###---Average mC lineplot
+```{r}
+
+# Reshape and calculate means/sem
+mc_plot <- mc_score %>%
+ as.data.frame() %>%
+ mutate(site = row_number()) %>%
+ pivot_longer(-site, names_to = "sample_rep", values_to = "mC") %>%
+ mutate(sample = gsub("_r[12]$", "", sample_rep)) %>%
+ group_by(sample) %>%
+ summarise(mean_mC = mean(mC, na.rm = TRUE), 
+           sem_mC = sd(mC, na.rm = TRUE) / sqrt(n()), .groups = 'drop') %>%
+ mutate(sample = factor(sample, levels = c("dunnart_sperm", "dunnart_d9", "dunnart_d10", 
+                                          "dunnart_d12", "dunnart_d13", "dunnart_liver")))
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/figures/")
+pdf("dunnart_av_mC_plot_SEM.pdf", useDingbats=FALSE, width=6, height=5)
+print(ggplot(mc_plot, aes(x = sample, y = mean_mC)) +
+  geom_ribbon(aes(ymin = mean_mC - sem_mC, ymax = mean_mC + sem_mC, group = 1), 
+              alpha = 0.4, fill = "#3498db") +
+  geom_errorbar(aes(ymin = mean_mC - sem_mC, ymax = mean_mC + sem_mC), 
+                width = 0.3, size = 1, color = "#3498db", alpha = 0.8) +
+  geom_line(aes(group = 1), size = 1.2, color = "#2c3e50") +
+  geom_point(size = 4, color = "#e74c3c", stroke = 1.5, fill = "white", shape = 21) +
+  ylim(0, 1) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12, color = "#2c3e50"),
+    axis.text.y = element_text(size = 12, color = "#2c3e50"),
+    axis.title = element_text(size = 14, color = "#2c3e50", face = "bold"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_line(color = "#ecf0f1", size = 0.5),
+    plot.background = element_rect(fill = "#fafafa", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.line = element_line(color = "#bdc3c7", size = 0.5)) +
+  labs(x = "Developmental stage", 
+    y = "Average methylation", 
+    caption = "Error bars show ± SEM"))
+dev.off()
+```
+
+###---boxplots - mC per 1kb bin
+```{r}
+
+bins1Kb <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/dunnart_male_T2T_21082025_BINNED_1000BP.bed")
+bins1Kb <- GRanges(seqnames = bins1Kb$V1, ranges=IRanges(start = bins1Kb$V2, end = bins1Kb$V3))
+bins1Kb<-subsetByOverlaps(bins1Kb, CpG, ignore.strand = FALSE) 
+
+
+col<-seq(1, ncol(mcols(bt)), by=2)
+names <- sub('\\..*', '', colnames(mcols(bt))[col])
+col <- setNames(col, names)
+
+
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, bins1Kb, a, b, minCov=1)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+saveRDS(x, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/source_data/bins1kb_mincov1_mC.rds")
+write.csv(x, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/source_data/bins1kb_mincov1_mC.csv")
+x <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/source_data/bins1kb_mincov1_mC.rds")
+
+x.na <- x[complete.cases(x),]
+
+```
+
+
+###---boxplots
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+x_long <- x.na %>%
+  pivot_longer(everything(), names_to = "sample", values_to = "methylation")
+
+colors <- c("#2E8B57", "#3CB371", "#8B1A1A", "#CD2626", "#FF6347", "#FF7F50", "#FFB90F", 
+            "#FFC125", "#6B8E23", "#8FBC8F", "#2E8B57", "#3CB371")
+
+x_long$sample <- factor(x_long$sample , levels=c("dunnart_sperm_r1", "dunnart_sperm_r2","dunnart_d9_r1", "dunnart_d9_r2", "dunnart_d10_r1", "dunnart_d10_r2", "dunnart_d12_r1", "dunnart_d12_r2",  "dunnart_d13_r1", "dunnart_d13_r2",  "dunnart_liver_r1",  "dunnart_liver_r2"))
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/figures/")
+pdf("boxplots_dunnart_mC_1Kb_windows_simple.pdf", useDingbats=FALSE, width=14, height=7)
+print(ggplot(x_long, aes(x = sample, y = methylation, fill = sample)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = NA, width = 0.5) +
+  scale_fill_manual(values = colors) +
+  labs(title = "Methylation Levels per 1kb bins",
+       x = "Sample", y = "Methylation Level") +
+  theme_classic(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        legend.position = "none",
+        axis.text.x.bottom = element_text(margin = margin(t = 5, b = 5))) +
+  scale_x_discrete(expand = expansion(add = c(0.5, 0.5))) +
+  ylim(0, 1))
+dev.off()
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/figures/")
+pdf("boxplots_dunnart_mC_1Kb_windows.pdf", useDingbats=FALSE, width=12, height=7)
+print(ggplot(x_long, aes(x = sample, y = methylation, fill = sample)) +
+  # Add horizontal guide lines first (behind boxes)
+  geom_hline(yintercept = seq(0, 1, 0.25), 
+             color = "gray85", linetype = "dashed", size = 0.4) +
+  
+  # Boxplot with subtle shadow effect
+  geom_boxplot(alpha = 0.95, outlier.shape = NA, width = 0.5, 
+               color = "gray20", size = 0.7, 
+               position = position_dodge(width = 0.75)) +
+  
+  scale_fill_manual(values = colors) +
+  
+  # Enhanced labels
+  labs(title = "Methylation Distribution across 1kb Genomic Windows",
+       subtitle = "Dunnart EM-seq data",
+       x = NULL, 
+       y = "Methylation Level") +
+  
+  # Modern theme
+  theme_minimal(base_size = 14) +
+  theme(
+    # Title styling
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18, 
+                              margin = margin(b = 5)),
+    plot.subtitle = element_text(hjust = 0.5, size = 13, color = "gray50",
+                                 margin = margin(b = 15)),
+    
+    # Axis styling
+    axis.text.x = element_text(angle = 45, hjust = 1, face = "bold", 
+                               size = 12, color = "gray20"),
+    axis.text.y = element_text(size = 11, color = "gray20"),
+    axis.title.y = element_text(size = 14, face = "bold", 
+                                margin = margin(r = 10)),
+    
+    # Clean look
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray80", size = 0.5),
+    axis.ticks = element_line(color = "gray80", size = 0.5),
+    
+    # Subtle background
+    plot.background = element_rect(fill = "#FAFAFA", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    
+    # Margins
+    plot.margin = margin(25, 25, 25, 25)
+  ) +
+  
+  scale_x_discrete(expand = expansion(add = c(0.6, 0.6))) +
+  scale_y_continuous(limits = c(0, 1), 
+                     breaks = seq(0, 1, 0.25),
+                     labels = scales::percent_format(),
+                     expand = expansion(mult = c(0.02, 0.02))))
+
+dev.off()
+
+```
+
+###---PCA
+```{r}
+#dist() This must be one of "correlation", "euclidean", "maximum", "manhattan", "canberra", "binary" or "minkowski"
+
+#hclust() This should be (an unambiguous abbreviation of) one of "ward", "single", "complete", "average", "mcquitty", "median" or "centroid". 
+t <- as.data.frame(t(x.na))
+
+
+#meth.matrix <- data.matrix(t)
+
+method.dist <- "spearman"
+method.clust <- "ward.D"
+library(factoextra)
+dist <- get_dist(t, method = method.dist)
+hc <- hclust(dist, method = method.clust)
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/figures/")
+pdf(paste0(method.dist, sep="_", method.clust, "hc_dunnart_mC_1Kb_windows.pdf", sep=""), useDingbats=FALSE, width=8, height=8)
+print(plot(hc, labels=rownames(t), main="Clustering samples on av meth per 1kb bin"))
+dev.off()
+
+method.dist <- "spearman"
+method.clust <- "ward.D2"
+
+dist <- get_dist(t, method = method.dist)
+hc <- hclust(dist, method = method.clust)
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/figures/")
+pdf(paste0(method.dist, sep="_", method.clust, "hc_dunnart_mC_1Kb_windows.pdf", sep=""), useDingbats=FALSE, width=8, height=12)
+print(plot(hc, labels=rownames(t), main="Clustering samples on av meth per 1kb bin"))
+dev.off()
+```
+
+
+# Performing PCA analysis
+```{r}
+#https://blog.bioturing.com/2018/06/18/how-to-read-pca-biplots-and-scree-plots/
+  
+# You should scale data whenever your variables differ 
+# by orders of magnitude, as they do here.
+# Transcription data usually varies over orders of 
+# magnitude, so scaling is appropriate.
+# We'll run PCA with prcomp (SVD-based), with and without 
+# scaling to unit variance
+#unscaled = prcomp(USArrests)
+#scaled = prcomp(USArrests, scale = TRUE)
+
+#perform PCA calculation
+pca <- prcomp(t) #scale = TRUE
+
+
+# If you look at your prcomp output, you'll see it reports
+# Standard deviations and Rotation. The screeplot plots variances (eigenvalues),
+# but remember that sqrt(Variance) = StDev. So, recovering the
+# variances in the screeplot is easy:
+stats <- pca 
+summary(stats)
+stats$var = stats$sdev * stats$sdev
+
+
+# It's similarly easy to get the proportion of variance reported
+# in the summary
+prop <- stats$var/sum(stats$var)
+PC <- c(1:length(prop))
+df <- cbind(PC, prop)
+df <- as.data.frame(df)
+df$PC <- paste0("PC", df$PC)
+colnames(df) <- c("PC","Proportion_of_variance")
+
+df$Proportion_of_variance <- as.numeric(df$Proportion_of_variance * 100)
+df$Proportion_of_variance <- as.numeric(format(df$Proportion_of_variance, scientific=FALSE))
+df$Proportion_of_variance <- round(df$Proportion_of_variance, digits = 2)
+
+df$PC <- factor(df$PC, levels = unique(df$PC))
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/figures/")
+pdf("PCA_all_5mC_bins1kb_scree_plot_prop_of_variance.pdf", useDingbats=FALSE, width=12, height=8)
+print(ggplot(data = df, aes(x = PC, y = Proportion_of_variance)) +
+        geom_point(size = 6) +
+        #geom_label(aes(label = Proportion_of_variance), position = "identity") +
+        geom_line())
+dev.off()
+
+
+# Looking at the biplots is also informative
+par(mfrow=c(1,2))
+biplot(pca)
+
+#visualize data using two principal components
+#biplot(pca,var.axes=FALSE,ylabs=NULL)
+#biplot(pca, scale = TRUE)
+
+
+#scree plot
+#A scree plot displays how much variation each principal component captures from the data
+#To deal with a not-so-ideal scree plot curve, there are a couple ways:
+
+#Kaiser rule: pick PCs with eigenvalues of at least 1.
+#Proportion of variance plot: the selected PCs should be able to describe at least 80% of the variance.
+
+#If you end up with too many principal components (more than 3), PCA might not be the best way to visualize your data. Instead, consider other dimension reduction techniques, such as t-SNE and MDS.
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/figures/")
+pdf("PCA_all_5mC_bins1kb_scree_plot.pdf", useDingbats=FALSE, width=12, height=8)
+print(screeplot(pca,type="lines"))
+dev.off()
+
+# create data frame with scores
+scores = as.data.frame(pca$x)
+rownames(scores) <- as.factor(rownames(scores))
+scores$sample <- row.names(scores)
+
+scores$sample <- ifelse(grepl("NB", scores$sample, ignore.case = TRUE), "African", "European")
+scores$label <- rownames(scores)
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mC/bins1kb/figures/")
+pdf("PCA_all_5mC_bins1kb_shapes_CHECK.pdf", useDingbats = FALSE, width = 8, height = 6)
+colors <- c("#8B1A1A", "#CD2626", "#FF6347", "#FF7F50", "#FFB90F", 
+            "#FFC125", "#6B8E23", "#8FBC8F", "#2E8B57", "#3CB371","#FF6347", "#FF7F50")
+print(ggplot(scores, aes(x = PC1, y = PC2)) +
+  geom_point(aes(fill = label, color = label), 
+             shape = 21, size = 7, stroke = 1.2, alpha = 0.9) +
+  scale_fill_manual(values = colors) +
+  scale_color_manual(values = colors) +
+  geom_text_repel(aes(label = label),
+                  box.padding = 0.5, 
+                  segment.color = 'grey50',
+                  size = 4) +
+  labs(title = "PCA plot of 5mC bins (1kb)",
+       x = "PC1", y = "PC2") +
+  theme_classic(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"),
+        legend.position = "right"))
+dev.off()
+
+
+```
+
+
+
+
