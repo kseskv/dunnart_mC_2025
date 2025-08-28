@@ -641,4 +641,114 @@ rtracklayer::export(CpG_filt[CpG_filt$delta <= -0.2], "liver_vs_E13_hypomethylat
 rtracklayer::export(CpG_filt[CpG_filt$delta >= 0.2], "liver_vs_E13_hypermethylated_20pct.bed")
 ```
 
+###---ALLUVIAL PLOTS
+```{r}
+bkgd <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/source_data/liver_vs_E13_background.bed")
+bkgd$id <- paste0(seqnames(bkgd), sep="_", start(bkgd))
+
+# Get all BED file paths
+bed_dir <- "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/source_data/"
+bed_files <- list.files(bed_dir, pattern = "20pct.bed$", full.names = TRUE)
+
+# Import all files into a named list
+bed_data <- lapply(bed_files, import)
+names(bed_data) <- gsub("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/source_data", "", gsub("_20pct.bed", "", bed_files))
+
+#Add an 'id' column to each bed file
+library(S4Vectors)
+bed_data <- lapply(bed_data, function(gr) {
+  if(length(gr) > 0) {
+    mcols(gr) <- DataFrame(mcols(gr), 
+                          id = paste0(as.character(seqnames(gr)), "_", start(gr)))
+  }
+  return(gr)
+})
+
+# Extract comparison names from bed_data (remove _hypermethylated/_hypomethylated suffixes)
+comparison_names <- unique(gsub("_(hypermethylated|hypomethylated)", "", names(bed_data)))
+
+# Function to annotate background with DMC status
+annotate_dmc_status <- function(bkgd, bed_data_list, comparisons) {
+  
+  for (comp in comparisons) {
+    # Get hypomethylated and hypermethylated datasets for this comparison
+    hypo_name <- paste0(comp, "_hypomethylated")
+    hyper_name <- paste0(comp, "_hypermethylated")
+    
+    # Initialize column with "NC" (No Change)
+    mcols(bkgd)[[comp]] <- "NC"
+    
+    # Check if datasets exist in the list
+    if (hypo_name %in% names(bed_data_list)) {
+      hypo_ids <- bed_data_list[[hypo_name]]$id
+      mcols(bkgd)[[comp]][bkgd$id %in% hypo_ids] <- "hypo"
+    }
+    
+    if (hyper_name %in% names(bed_data_list)) {
+      hyper_ids <- bed_data_list[[hyper_name]]$id
+      mcols(bkgd)[[comp]][bkgd$id %in% hyper_ids] <- "hyper"
+    }
+    
+    cat("Added column", comp, "with", 
+        sum(mcols(bkgd)[[comp]] == "hypo"), "hypo,", 
+        sum(mcols(bkgd)[[comp]] == "hyper"), "hyper,", 
+        sum(mcols(bkgd)[[comp]] == "NC"), "NC\n")
+  }
+  
+  return(bkgd)
+}
+
+# Apply the annotation
+bkgd_annotated <- annotate_dmc_status(bkgd, bed_data, comparison_names)
+bkgd_annotated_df <- as.data.frame(bkgd_annotated)
+saveRDS(bkgd_annotated_df, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/source_data/DMCs_status_alluvial_plot.rds")
+
+all <- bkgd_annotated_df[, c(8:ncol(bkgd_annotated_df))]
+colnames(all) <- c("id", "E12_vs_E10", "E13_vs_E12", "liver_vs_E13", "sperm_vs_E9")
+
+#add E10_vs_E9 column will all NC
+all$E10_vs_E9 <- "NC"
+all <- all[,c(1,5,6,2,3,4)]
+all$id <- paste(all$sperm_vs_E9, all$E10_vs_E9, all$E12_vs_E10, all$E13_vs_E12, all$liver_vs_E13, sep="_")
+
+freq <- as.data.frame(table(all$id))
+freq
+x<-as.data.frame(do.call(rbind, strsplit(as.character(freq$Var1), "_")))
+x<-cbind(x, freq$Freq)
+colnames(x) <- c("sperm_vs_E9", "E10_vs_E9", "E12_vs_E10", "E13_vs_E12", "liver_vs_E13", "freq") #nrow(x) = 20
+x$number <- c(1:nrow(x))
+x.m <-melt(x, measure.vars=c("sperm_vs_E9", "E10_vs_E9", "E12_vs_E10", "E13_vs_E12", "liver_vs_E13"))
+head(x.m)
+
+
+library(ggalluvial)
+colors <- c("hypo" = "#2166AC", "hyper" = "#D73027", "NC" = "#808080")
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/figures/alluvial/")
+pdf("mC_alluvial_DMCs_DMRcate.pdf", useDingbats=FALSE, width=10, height=8)
+print(ggplot(x, aes(axis1 = sperm_vs_E9, axis2 = E10_vs_E9, axis3 = E12_vs_E10, 
+                   axis4 = E13_vs_E12, axis5 = liver_vs_E13, y = freq)) +
+  scale_x_discrete(limits = c("sperm_vs_E9", "E10_vs_E9", "E12_vs_E10", "E13_vs_E12", "liver_vs_E13"),
+                   labels = c("Sperm vs E9", "E9 vs E10", "E10 vs E12", "E12 vs E13", "E13 vs Liver")) +
+  geom_alluvium(aes(fill = sperm_vs_E9), alpha = 0.8, curve_type = "cubic") +
+  geom_stratum(aes(fill = after_stat(stratum)), alpha = 0.7, color = "white", size = 0.5) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), 
+            size = 3, fontface = "bold", color = "white") +
+  scale_fill_manual(values = colors, name = "Methylation\nStatus") +
+  labs(title = "CpG Methylation Dynamics Across Development",
+       subtitle = "Trajectory of differentially methylated CpGs from sperm through embryogenesis to liver",
+       x = "Developmental Stage Comparisons", y = "Number of CpGs") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray40"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 12, face = "bold"),
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 10),
+    panel.grid = element_blank(),
+    plot.margin = margin(20, 20, 20, 20)
+  ))
+dev.off()
+```
 
