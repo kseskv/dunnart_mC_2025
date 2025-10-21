@@ -1,0 +1,479 @@
+---
+title: "dunnart_mC"
+output: html_document
+date: "2024-02-28"
+author: "Ksenia Skvortsova"
+---
+###---dunnart elf5 etc promoters file:
+```{r}
+chr6:36,950,650-36,950,868
+regions <- GRanges(
+  seqnames = c("chr6", "chr5", "chr5", "chr4"),
+  ranges = IRanges(
+    start = c(36950650, 171927261, 187329029, 195252625),
+    end = c(36950868, 171967815, 187332099, 195269657)
+  ),
+  name = c("elf5", "gata3", "nanog", "pou5f1")
+)
+export(regions, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/scMTseq/elf5_nanog_mC/elf5_gata3_nanog_pou5f1_pro_16092025.bed")
+
+
+bed_data <- data.frame(
+  chr = c("chr6", "chr5", "chr5", "chr4"),
+  start = c(36950326, 171927261, 187329029, 195252625),
+  end = c(36955932, 171967815, 187332099, 195269657),
+  name = c("elf5", "gata3", "nanog", "pou5f1")
+)
+bed_data_gr <- GRanges(seqnames=bed_data$chr, ranges=IRanges(start=bed_data$start, end=bed_data$end), strand="*", name=bed_data$name)
+export(bed_data_gr, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/scMTseq/elf5_nanog_mC/elf5_gata3_nanog_pou5f1_pro.bed")
+
+#expand +-5kb
+regions <- GRanges(
+  seqnames = c("chr6", "chr5", "chr5", "chr4"),
+  ranges = IRanges(
+    start = c(36950326, 171927261, 187329029, 195252625) - 5000,
+    end = c(36955932, 171967815, 187332099, 195269657) + 5000
+  ),
+  name = c("elf5", "gata3", "nanog", "pou5f1")
+)
+export(regions, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/scMTseq/elf5_nanog_mC/elf5_gata3_nanog_pou5f1_pro_expanded5kb.bed")
+
+module load bedtools/2.31.0
+for file in *.bedGraph; do
+    bedtools intersect -a "$file" -b elf5_gata3_nanog_pou5f1_pro_expanded5kb.bed > "${file%.bedGraph}_lineage_promoters.bedGraph"
+done
+
+for file in *.bedGraph; do
+    awk '$1=="chr1"' "$file" > "${file%.bedGraph}_chr1.bedGraph"
+done
+
+for file in *.bedGraph; do
+    awk '$1=="chr6"' "$file" > "${file%.bedGraph}_chr6.bedGraph"
+done
+
+
+for file in *.bedGraph; do
+    awk '$1=="chrX"' "$file" > "${file%.bedGraph}_chrX.bedGraph"
+done
+
+
+echo -e "chr6\t13434910\t60476135" > chr6_part.bed
+
+# Extract from all bedGraph files
+for file in *.bedGraph; do
+    bedtools intersect -a "$file" -b chr6_part.bed > "${file%.bedGraph}_chr6_region.bedGraph"
+done
+
+
+
+
+echo -e "chr5\t24145332\t26216785" > chr5_eomes.bed
+
+# Extract from all bedGraph files
+for file in *.bedGraph; do
+    bedtools intersect -a "$file" -b chr5_eomes.bed > "${file%.bedGraph}_chr5_eomes.bedGraph"
+done
+
+
+chr2:83,242,982-87,692,956
+echo -e "chr2\t83242982\t87692956" > chr2_fgfr2.bed
+
+# Extract from all bedGraph files
+for file in *.bedGraph; do
+    bedtools intersect -a "$file" -b chr2_fgfr2.bed > "${file%.bedGraph}_chr2_fgfr2.bedGraph"
+done
+
+chr6:36,931,376-36,942,641 - elf5_1
+chr6:36,951,507-36,954,886 elf5_2
+```
+
+
+```{r}
+library(data.table)
+library(rtracklayer)
+library(factoextra)
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+overlapSums <- function(x, y, z, na.rm=FALSE) {
+  stopifnot(class(x)=="GRanges")
+  stopifnot(class(y)=="GRanges")
+  stopifnot(class(z)=="numeric" | class(z)=="integer")
+  stopifnot(length(x)==length(z))
+  ov <- as.matrix(findOverlaps(y, x))
+  ovSums <- rep(as.numeric(NA), length(y))
+  ovSums[unique(ov[,1])] <- viewSums(Views(z[ov[,2]], ranges(Rle(ov[,1]))), na.rm=na.rm)
+  ovSums
+}
+
+
+overlapRatios <- function(x, y, C, cov, minCov, na.rm=FALSE) {
+  C.sum <- overlapSums(x, y, values(x)[[C]], na.rm=na.rm)
+  cov.sum <- overlapSums(x, y, values(x)[[cov]], na.rm=na.rm)
+  ov_all <- as.data.frame(findOverlaps(y, x)) 
+  number_of_CpGs <- rle(ov_all[,1])$lengths #--- total number of CpGs per region
+  CpG_ov_regions <- x[ov_all$subjectHits] #--- coverage of CpGs overlapping regions
+  ov_all$cov <- as.numeric(values(CpG_ov_regions)[[cov]])
+  ov_all$cov_binary<-as.numeric(ifelse(ov_all$cov>=minCov, 1, 0))
+  number_of_CpGs_minCov <- as.numeric(tapply(ov_all$cov_binary, ov_all$queryHits, FUN=sum))
+  CpGs_covered <- as.numeric(number_of_CpGs_minCov) / as.numeric(number_of_CpGs)
+  rat <- as.data.frame(C.sum/cov.sum)
+  rat_cov<-cbind(rat, CpGs_covered)
+  colnames(rat_cov) <- c("rat", "CpGs_covered")
+  rat_cov$rat[rat_cov$CpGs_covered < 0.5] <- NA
+  rat_cov[,1]
+}
+```
+
+```{r}
+bt <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mapping/bigtable/bigtable.tsv") #4761416
+bt <- as.data.frame(bt)
+
+bt$start <- as.numeric(as.character(bt$start))
+bt <- bt[complete.cases(bt$start),]
+
+#convert .C and .cov into numeric 
+cols_to_convert <- grep("\\.(C|cov)$", names(bt))
+
+# Convert to numeric
+bt[cols_to_convert] <- lapply(bt[cols_to_convert], as.numeric)
+
+#re-order
+
+bt <- bt[,c(1:2, 23:26, 15:18, 3:14, 19:22)]
+
+saveRDS(bt, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq/bigtable/bigtable.rds")
+bt <- GRanges(seqnames = bt$chr, ranges = IRanges(start=bt$start, width = 2), strand = "*", bt[, c(3:ncol(bt))])
+
+
+CpG <- c(bt, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bt)[,-c(1:5)] 
+
+```
+
+
+#background CpGs
+```{r}
+# Define chromosomes to keep
+keep_chrs <- paste0("chr", c(1:6, "X", "Y"))
+
+# Filter CpG object
+CpG_sc <- CpG[seqnames(CpG) %in% keep_chrs]
+
+#select rows with median coverage >=3
+# Get coverage column names
+cov_cols <- grep("\\.cov$", colnames(mcols(CpG_sc)), value = TRUE)
+
+# Calculate median coverage for each row
+median_cov <- apply(mcols(CpG_sc)[, cov_cols], 1, median, na.rm = TRUE)
+
+# Add median coverage as metadata column
+mcols(CpG_sc)$median_cov <- median_cov
+
+# Filter for median coverage >= 3
+CpG_filt <- CpG_sc[CpG_sc$median_cov >= 3]
+
+```
+
+```{r}
+dss <- CpG_filt
+
+dss<-GRangesList(dss)
+dss_ext <- lapply(dss, function(x) promoters(x, upstream = 500, downstream = 500))
+#dss_ext<-GRangesList(dss_ext)
+
+dmrs_raw <- GRangesList()
+for(i in 1:length(dss_ext)){
+  dmrs_raw[[i]] <- reduce(dss_ext[[i]]) 
+}
+names(dmrs_raw) <- names(dss_ext)
+names(dmrs_raw) <- "background"
+
+width <- lapply(dmrs_raw, function(x) x$width <- width(x))
+for(i in 1:length(dmrs_raw)){
+  dmrs_raw[[i]]$length <- width[[i]]
+}
+
+
+#dss <- GRangesList(dss)
+dss_un <- unlist(dss)
+cpg_count <- lapply(dmrs_raw, function(x) countOverlaps(x, dss_un))
+
+cpg_count <- list()
+for(i in 1:length(dmrs_raw)){
+  cpg_count[[i]] <- countOverlaps(dmrs_raw[[i]], dss[[i]])
+}
+
+
+cpg_count_total <- lapply(dmrs_raw, function(x) countOverlaps(x, CpG))
+for(i in 1:length(dmrs_raw)){
+  dmrs_raw[[i]]$cpg_count <- cpg_count[[i]]
+  dmrs_raw[[i]]$cpg_count_total <- cpg_count_total[[i]]
+  dmrs_raw[[i]]$cpg_per_sign <- dmrs_raw[[i]]$cpg_count / dmrs_raw[[i]]$cpg_count_total
+}
+
+dmrs <- GRangesList()
+for(i in 1:length(dmrs_raw)){
+  dmrs[[i]] <- dmrs_raw[[i]][mcols(dmrs_raw[[i]])$length >= 1000 & mcols(dmrs_raw[[i]])$cpg_count >= 3 & mcols(dmrs_raw[[i]])$cpg_per_sign >= 0.01]
+}
+names(dmrs) <- names(dmrs_raw)
+lapply(dmrs, length)
+
+for(i in 1:length(dmrs)){
+  dmrs[[i]] <- resize(dmrs[[i]], width(dmrs[[i]]) - 500, fix="end")
+  dmrs[[i]] <- resize(dmrs[[i]], width(dmrs[[i]]) - 498, fix="start")
+}
+lapply(dmrs, length)
+
+
+x <- dmrs[[1]]
+export(x, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/invariant_regions_BACKGROUND_ext500_l1000_cpg3.bed")
+```
+
+
+
+###--- identify invariant CpGs
+```{r}
+###---Calc methylation score per CpG
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub('\\..*', '', colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+
+mc_score <- mapply(function(a, b){as.numeric(mcols(CpG)[, a]) / as.numeric(mcols(CpG)[, b])}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+mc_score<-as.data.frame(mc_score)
+
+z <- mc_score
+mcols(CpG) <- z
+
+###---Select rows with >=0.7 and <=1.0 mCG/CG
+sample_cols <- colnames(mcols(CpG))
+mcols_df <- as.data.frame(mcols(CpG))
+in_range <- mcols_df[, sample_cols] >= 0.7 & mcols_df[, sample_cols] <= 1.0
+all_in_range <- apply(in_range, 1, all, na.rm = TRUE)
+CpG_invariant_hi <- CpG[all_in_range]
+
+head(CpG_invariant_hi)
+
+###---Select rows with median cov >=3
+CpG_invariant_hi_cov3 <- subsetByOverlaps(CpG_invariant_hi, CpG_filt)
+
+```
+
+
+```{r}
+dss <- CpG_invariant_hi_cov3
+
+dss<-GRangesList(dss)
+dss_ext <- lapply(dss, function(x) promoters(x, upstream = 500, downstream = 500))
+#dss_ext<-GRangesList(dss_ext)
+
+dmrs_raw <- GRangesList()
+for(i in 1:length(dss_ext)){
+  dmrs_raw[[i]] <- reduce(dss_ext[[i]]) 
+}
+names(dmrs_raw) <- names(dss_ext)
+names(dmrs_raw) <- "invariant"
+
+width <- lapply(dmrs_raw, function(x) x$width <- width(x))
+for(i in 1:length(dmrs_raw)){
+  dmrs_raw[[i]]$length <- width[[i]]
+}
+
+
+#dss <- GRangesList(dss)
+dss_un <- unlist(dss)
+cpg_count <- lapply(dmrs_raw, function(x) countOverlaps(x, dss_un))
+
+cpg_count <- list()
+for(i in 1:length(dmrs_raw)){
+  cpg_count[[i]] <- countOverlaps(dmrs_raw[[i]], dss[[i]])
+}
+
+
+cpg_count_total <- lapply(dmrs_raw, function(x) countOverlaps(x, CpG))
+for(i in 1:length(dmrs_raw)){
+  dmrs_raw[[i]]$cpg_count <- cpg_count[[i]]
+  dmrs_raw[[i]]$cpg_count_total <- cpg_count_total[[i]]
+  dmrs_raw[[i]]$cpg_per_sign <- dmrs_raw[[i]]$cpg_count / dmrs_raw[[i]]$cpg_count_total
+}
+
+dmrs <- GRangesList()
+for(i in 1:length(dmrs_raw)){
+  dmrs[[i]] <- dmrs_raw[[i]][mcols(dmrs_raw[[i]])$length >= 1000 & mcols(dmrs_raw[[i]])$cpg_count >= 3 & mcols(dmrs_raw[[i]])$cpg_per_sign >= 0.01]
+}
+names(dmrs) <- names(dmrs_raw)
+lapply(dmrs, length)
+
+for(i in 1:length(dmrs)){
+  dmrs[[i]] <- resize(dmrs[[i]], width(dmrs[[i]]) - 500, fix="end")
+  dmrs[[i]] <- resize(dmrs[[i]], width(dmrs[[i]]) - 498, fix="start")
+}
+lapply(dmrs, length)
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/")
+lapply(1:length(dmrs), function(i) export(dmrs[[i]], 
+                                      con = paste0(names(dmrs)[i], "_ext100_l500_cpg3", ".bed")))
+
+
+invariant_reg <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/invariant_ext100_l500_cpg3.bed")
+invariant_reg$length <- width(invariant_reg)
+summary(invariant_reg$length)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#    6.0   179.0   566.5   835.8  1115.0 15498.0 
+```
+
+
+
+###---annotateBed
+```{bash}
+cd /g/data/vn68/ks8210/genomes/Sminthopsis_crassicaudata
+###---CREATE genome.bed file
+# Index the FASTA file
+module load centos7.8/qiadu/samtools/1.9
+samtools faidx dunnart_male_T2T_21082025.fasta
+
+# Create BED file from the index
+cut -f1,2 dunnart_male_T2T_21082025.fasta.fai | awk '{print $1 "\t0\t" $2}' > dunnart_male_T2T_21082025.bed
+
+# create chrom.sizes file
+cut -f1,2 dunnart_male_T2T_21082025.fasta.fai > dunnart_male_T2T_21082025_lambda.chrom.sizes
+
+#### rep separately
+
+
+####---CREATE BACKGROUND
+# invariant regions
+
+module load bedtools/2.31.0
+DIR="/g/data/vn68/ks8210/genomes/Sminthopsis_crassicaudata/"
+INPUT_DIR="/g/data/vn68/ks8210/genomes/Sminthopsis_crassicaudata/annotateBED/"
+
+bedtools_command="bedtools subtract -a ${DIR}"dunnart_male_T2T_21082025.bed" -b ${INPUT_DIR}"invariant_ext100_l500_cpg3.bed"  > ${INPUT_DIR}"inter_invariant_ext100_l500_cpg3.bed""
+echo $bedtools_command && eval $bedtools_command  
+
+bedtools_command="bedtools makewindows -b ${INPUT_DIR}"inter_invariant_ext100_l500_cpg3.bed" -w 500 > ${INPUT_DIR}"inter_invariant_ext100_l500_cpg3_BINNED_500BP.bed""
+echo $bedtools_command && eval $bedtools_command 
+```
+
+
+```{r}
+
+interINV <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/inter_invariant_ext100_l500_cpg3_BINNED_500BP.bed")
+
+INV <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/invariant_ext100_l500_cpg3.bed")
+
+mcols(INV) <- NULL
+INV$name <- c(1:length(INV))
+export(INV, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/invariant_ext100_l500_cpg3_NUMBER.bed")
+mcols(interINV) <- NULL
+interINV$name <- c((length(INV)+1) : (length(INV)+length(interINV)))
+background <- c(INV, interINV)
+export(background, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/BACKGROUND_invariant_ext100_l500_cpg3_BINNED_500BP.bed")
+```
+
+
+```{bash}
+screen -S inv
+module load bedtools/2.31.0
+INPUT_DIR="/g/data/vn68/ks8210/genomes/Sminthopsis_crassicaudata/annotateBED/"
+
+bedtools annotate -i ${INPUT_DIR}"BACKGROUND_invariant_ext100_l500_cpg3_BINNED_500BP.bed" -files ${INPUT_DIR}"dunnart_male_T2T_promoter_2kb.bed" ${INPUT_DIR}"dunnart_male_T2T_genes.bed" ${INPUT_DIR}"dunnart_male_T2T_exon_merged.bed" ${INPUT_DIR}"dunnart_male_T2T_intron.bed" ${INPUT_DIR}"dunnart_male_T2T_intergenic.bed" ${INPUT_DIR}"dunnart_male_all_repeats_upd.bed" -names promoters genes exons introns intergenic repeats > ${INPUT_DIR}"dunnart_male_T2T_embryo_invariant_reg_annotation_genes.txt"
+
+
+```
+
+
+```{r}
+module load centos7.8/phuluu/R/4.0.3
+library(rtracklayer)
+library(data.table)
+x <- import("/share/ScratchGeneral/kseskv/annotateBed/invariant_ext100_l500_cpg3_NUMBER.bed")
+
+annot <- fread("/share/ScratchGeneral/kseskv/annotateBed/dunnart_male_T2T_embryo_invariant_reg_annotation_genes.txt", fill=TRUE)
+annot <- as.data.frame(annot)
+cnames <- colnames(annot)[7:(ncol(annot))]
+annot <- annot[, c(4, 7:ncol(annot))]
+colnames(annot) <- c("id", cnames)
+
+
+
+#--- Regions to test
+#test.ids <- read.table(test.file, sep="\t", check.names=FALSE)[,1]
+test.ids <- x$name
+#test.ids <- hypo_e72_atf$name
+test.idxs <- match(test.ids, annot$id)
+
+#--- Regions to use as backgorund
+#background.ids <- read.table(background.file, sep="\t", check.names=FALSE)[,1]
+#background.idxs <- match(background.ids, annot[,1])
+background.idxs <- 1:nrow(annot)
+
+#--- Compute annotation enrichments
+n.test <- c()
+n.background <- c()
+p <- c()
+annot.idxs.list <- list(tss = grep("promoters", colnames(annot)),
+                        promoters = grep("genes", colnames(annot)),
+                        genes = grep("exons", colnames(annot)),
+                        exons = grep("introns", colnames(annot)),
+                        introns = grep("intergenic", colnames(annot)),
+                        intergenic = grep("repeats", colnames(annot)))                     
+for (annot.idxs in annot.idxs.list) {
+  # test regions
+  temp <- apply(annot[test.idxs, annot.idxs, drop=FALSE], 1, max)
+  temp[temp == 0] <- 0.001 # takes care of regions not ping any annotations
+  I.test <- (annot[test.idxs, annot.idxs, drop=FALSE] >= temp) # which annotation best s the region?
+  I.test <- I.test/(rowSums(I.test)+1e-16) # account for ties
+  
+  # background regions
+  temp <- apply(annot[background.idxs, annot.idxs, drop=FALSE], 1, max)
+  temp[temp == 0] <- 0.001 # takes care of regions not ping any annotations
+  I.background <- (annot[background.idxs, annot.idxs, drop=FALSE] >= temp) # which annotation best overlaps the region?
+  I.background <- I.background/(rowSums(I.background)+1e-16) # account for ties
+  
+  k <- nrow(I.test)
+  M <- nrow(I.background)
+  
+  for (i in 1:ncol(I.test)){
+    q <- ceiling(sum(I.test[,i]))
+    m <- ceiling(sum(I.background[,i]))
+    pval <- min(phyper(q, m, M-m, k, lower.tail=TRUE),
+                phyper(q, m, M-m, k, lower.tail=FALSE))
+    n.test <- c(n.test, q)
+    n.background <- c(n.background, m)
+    p <- c(p, pval)
+  }  
+}
+f.test <- n.test/k; f.background <- n.background/M; e <- f.test/f.background
+rv <- cbind(n.test, n.background, f.test, f.background, e, p)
+rownames(rv) <- colnames(annot)[unlist(annot.idxs.list)]
+colnames(rv) <- c("n.test", "n.background", "f.test", "f.background",  "enrichment", "p-value")
+rv <- as.data.frame(rv)
+rv$qval <- p.adjust(rv$`p-value`, method = "fdr")
+
+setwd("/share/ScratchGeneral/kseskv/annotateBed/")
+write.csv(rv, "/share/ScratchGeneral/kseskv/annotateBed//invariant_ext100_l500_cpg3_NUMBER_annotation.csv")
+
+rv <- fread("/share/ScratchGeneral/kseskv/annotateBed//invariant_ext100_l500_cpg3_NUMBER_annotation.csv")
+
+
+rv_filt<-as.data.frame(rv)
+rv_filt$group<-rownames(rv_filt)
+rv_filt_cut<-rv_filt[,c(1,6)]
+rv_filt_cut$V1<-factor(rv_filt_cut$V1, levels=unique(rv_filt_cut$V1))
+
+
+setwd("/share/ScratchGeneral/kseskv/annotateBed/")
+pdf("dunnart_embryo_invariant_ext100_l500_cpg3_annot.pdf", useDingbats=FALSE, width=13, height=10) 
+print(ggplot(rv_filt_cut, aes(x=V1, y=enrichment, fill=V1)) +
+        geom_bar(stat="identity", width=0.3) +
+        ylim(0, 11.5) +
+        scale_fill_manual(values=c("#F2300F",   "#35274A" , "#74A089", "#E1BD6D",  "#9A8822", "#F2300F",   "#35274A" , "#74A089", "#E1BD6D",  "#9A8822")))
+dev.off()  
+
+
+```
