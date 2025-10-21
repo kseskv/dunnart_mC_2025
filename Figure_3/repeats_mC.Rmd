@@ -1,0 +1,111 @@
+
+### repeats methylation
+```{r}
+bigtable <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMRs_sperm_EPI_TE/bigtable/sperm_E9epi_E9te_bigtable.tsv")
+
+CpG <- c(bigtable, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bigtable)[,-c(1:5)]  
+
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub("\\.(C|cov)$", "", colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+
+repeats_gr <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/repeats_TimAmos/dunnart_male_all_repeats_upd.bed")
+repeats_gr <- subsetByOverlaps(repeats_gr, CpG)
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, repeats_gr, a, b, minCov=1)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+mcols(repeats_gr) <- cbind(mcols(repeats_gr), x)
+
+saveRDS(repeats_gr, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/repeats_TimAmos/repeats_mincov3_mC.rds")
+#write.csv(x, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/repeats_TimAmos/repeats_mincov3_mC.csv")
+
+repeats_gr <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/repeats_TimAmos/repeats_mincov3_mC.rds")
+repeats_df <- as.data.frame(repeats_gr)
+x.na <- repeats_df[complete.cases(repeats_df),]
+
+table(x.na$name)
+# Check the counts for each RepeatClass
+repeat_class_counts <- table(x.na$name)
+
+# Find classes with more than 50 elements
+selected_classes <- names(repeat_class_counts[repeat_class_counts >= 50])
+
+# Subset the GRanges object to only those classes
+filtered_repeats <- x.na[which(x.na$name %in% selected_classes),]
+
+# Check
+table(filtered_repeats$name)
+
+
+repeats_df <- filtered_repeats[,-c(1:5)]
+repeats_df <- repeats_df[which(!repeats_df$name=="Unknown"),]
+
+m <- melt(repeats_df, id.vars="name")
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/repeats_TimAmos/")
+pdf("Repeats_mC_mincov3_violin.pdf", useDingbats=FALSE, width=30, height=18)
+print(ggplot(m, aes(x = variable, y = value, fill = variable)) +
+  geom_violin(trim=FALSE) +
+  geom_boxplot(width=0.1) +  # Optional: remove outliers for cleaner plot
+  facet_wrap(~name, ncol = 6) +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = "mCG/CG", x = "Repeat Class", title = "Repeat mC"))
+dev.off()
+```
+
+```{r}
+library(tidyr)
+library(dplyr)
+
+# Reshape to long format
+repeats_long <- repeats_df %>%
+  pivot_longer(
+    cols = starts_with("sperm") | starts_with("E9"),
+    names_to = "timepoint",
+    values_to = "value"
+  )
+
+# Aggregate by mean
+heatmap_data <- repeats_long %>%
+  group_by(name, timepoint) %>%
+  summarise(value = mean(value, na.rm = TRUE), .groups = "drop")
+
+# Calculate the mean value for each RepeatClass across all timepoints
+mean_values <- heatmap_data %>%
+  group_by(name) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE))
+
+# Order RepeatClass based on the mean_value 
+heatmap_data$name <- factor(heatmap_data$name, 
+                                   levels = mean_values$name[order(mean_values$mean_value)])
+
+
+
+library(ggplot2)
+heatmap_data$timepoint <- factor(heatmap_data$timepoint , levels=c("sperm_r1", "sperm_r2",  "E9te_r1", "E9epi_r1"))
+library(RColorBrewer)
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/repeats_TimAmos/")
+pdf("Repeats_mC_mincov1_heatmap_v3.pdf", useDingbats=FALSE, width=10, height=6)
+print(ggplot(heatmap_data, aes(x = timepoint, y = name, fill = value)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+    na.value = "white",
+        limits = c(0, 1)  
+  ) +
+  geom_vline(xintercept = c(2.5, 4.5, 6.5, 8.5, 10.5), 
+             color = "white", size = 3) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 8),
+        panel.grid = element_blank()) +
+  labs(x = "Timepoint", y = "Repeat Class", fill = "Value"))
+dev.off()
+
+```
+
