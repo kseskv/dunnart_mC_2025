@@ -1,0 +1,274 @@
+
+###---DMRs
+
+```{bash}
+module load bedtools/2.31.0
+DIR="/g/data/vn68/ks8210/genomes/Sminthopsis_crassicaudata/"
+INPUT_DIR="/g/data/vn68/ks8210/genomes/Sminthopsis_crassicaudata/annotateBED_DMRs/"
+
+bedtools_command="bedtools subtract -a ${DIR}"dunnart_male_T2T_21082025.bed" -b ${INPUT_DIR}"dunnart_d9_vs_sperm.DMRs_hypo0.1.bed"  > ${INPUT_DIR}"inter_dunnart_d9_vs_sperm.DMRs_hypo0.1.bed""
+echo $bedtools_command && eval $bedtools_command  
+
+bedtools_command="bedtools makewindows -b ${INPUT_DIR}"inter_dunnart_d9_vs_sperm.DMRs_hypo0.1.bed" -w 1500 > ${INPUT_DIR}"inter_dunnart_d9_vs_sperm.DMRs_hypo0.1_BINNED_1500BP.bed""
+echo $bedtools_command && eval $bedtools_command  
+
+
+bedtools_command="bedtools subtract -a ${DIR}"dunnart_male_T2T_21082025.bed" -b ${INPUT_DIR}"dunnart_d12_vs_d9.DMRs_hypo0.1.bed"  > ${INPUT_DIR}"inter_dunnart_d12_vs_d9.DMRs_hypo0.1.bed""
+echo $bedtools_command && eval $bedtools_command  
+
+bedtools_command="bedtools makewindows -b ${INPUT_DIR}"inter_dunnart_d12_vs_d9.DMRs_hypo0.1.bed" -w 1500 > ${INPUT_DIR}"inter_dunnart_d12_vs_d9.DMRs_hypo0.1_BINNED_1500BP.bed""
+echo $bedtools_command && eval $bedtools_command  
+
+```
+
+
+
+```{r}
+hyperE_hypoL <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/dunnart_d12_vs_d9.DMRs_hypo0.1.bed") #309
+summary(width(hyperE_hypoL))
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#     57     499     857    1031    1340    5353
+
+interDMR <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/inter_dunnart_d12_vs_d9.DMRs_hypo0.1_BINNED_1500BP.bed")
+
+
+mcols(hyperE_hypoL) <- NULL
+hyperE_hypoL$name <- c(1:length(hyperE_hypoL))
+export(hyperE_hypoL, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/dunnart_d12_vs_d9.DMRs_hypo0.1_NUMBER.bed")
+
+mcols(interDMR) <- NULL
+interDMR$name <- c((length(hyperE_hypoL)+1) : (length(hyperE_hypoL)+length(interDMR)))
+background <- c(hyperE_hypoL, interDMR)
+export(background, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/BACKGROUND_dunnart_d12_vs_d9.DMRs_hypo0.1_NUMBER_BINNED_1500BP.bed")
+
+
+#
+hypoE_hyperL <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/dunnart_d9_vs_sperm.DMRs_hypo0.1.bed") #267686
+#hypoE_hyperL <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/min_3_CpGs/dunnart_d9_vs_sperm.DMRs.rds")
+#hypoE_hyperL <- GRanges(seqnames=hypoE_hyperL$seqnames, ranges=IRanges(start=hypoE_hyperL$start, end=hypoE_hyperL$end), strand="*", hmfdr=hypoE_hyperL$HMFDR)
+total_length1 <- sum(width(hypoE_hyperL)) #597408483 vs 690700644
+
+summary(width(hypoE_hyperL))  
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#     23    1102    1746    2322    2848   72916 
+
+
+
+interDMR <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/inter_dunnart_d9_vs_sperm.DMRs_hypo0.1_BINNED_1500BP.bed")
+total_length2 <- sum(width(interDMR)) #2629506012
+
+mcols(hypoE_hyperL) <- NULL
+hypoE_hyperL$name <- c(1:length(hypoE_hyperL))
+export(hypoE_hyperL, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/dunnart_d9_vs_sperm.DMRs_hypo0.1_NUMBER.bed")
+
+mcols(interDMR) <- NULL
+interDMR$name <- c((length(hypoE_hyperL)+1) : (length(hypoE_hyperL)+length(interDMR)))
+background <- c(hypoE_hyperL, interDMR)
+export(background, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/BACKGROUND_dunnart_d9_vs_sperm.DMRs_hypo0.1_NUMBER_BINNED_1500BP.bed")
+```
+
+```{bash}
+screen -S dmr
+module load bedtools/2.31.0
+INPUT_DIR="/g/data/vn68/ks8210/genomes/Sminthopsis_crassicaudata/annotateBED_DMRs/"
+DIR="/g/data/vn68/ks8210/genomes/Sminthopsis_crassicaudata/annotateBED/"
+
+bedtools annotate -i ${INPUT_DIR}"BACKGROUND_dunnart_d12_vs_d9.DMRs_hypo0.1_NUMBER_BINNED_1500BP.bed" -files ${DIR}"dunnart_male_T2T_promoter_2kb.bed" ${DIR}"dunnart_male_T2T_genes.bed" ${DIR}"dunnart_male_T2T_exon_merged.bed" ${DIR}"dunnart_male_T2T_intron.bed" ${DIR}"dunnart_male_T2T_intergenic.bed" ${DIR}"dunnart_male_all_repeats_upd.bed" -names promoters genes exons introns intergenic repeats > ${INPUT_DIR}"dunnart_male_T2T_d12_vs_d9.DMRs_hypo0.1_annotation_genes.txt"
+
+
+bedtools annotate -i ${INPUT_DIR}"BACKGROUND_dunnart_d9_vs_sperm.DMRs_hypo0.1_NUMBER_BINNED_1500BP.bed" -files ${DIR}"dunnart_male_T2T_promoter_2kb.bed" ${DIR}"dunnart_male_T2T_genes.bed" ${DIR}"dunnart_male_T2T_exon_merged.bed" ${DIR}"dunnart_male_T2T_intron.bed" ${DIR}"dunnart_male_T2T_intergenic.bed" ${DIR}"dunnart_male_all_repeats_upd.bed" -names promoters genes exons introns intergenic repeats > ${INPUT_DIR}"dunnart_male_T2T_d9_vs_sperm.DMRs_hypo0.1_annotation_genes.txt"
+
+```
+
+
+
+###---d12 vs d9 hypoDMRs
+```{r}
+module load centos7.8/phuluu/R/4.0.3
+library(rtracklayer)
+library(data.table)
+library(ggplot2)
+
+x <- import("/share/ScratchGeneral/kseskv/annotateBed/dunnart_d12_vs_d9.DMRs_hypo0.1_NUMBER.bed")
+
+
+annot <- fread("/share/ScratchGeneral/kseskv/annotateBed/dunnart_male_T2T_d12_vs_d9.DMRs_hypo0.1_annotation_genes.txt", fill=TRUE)
+annot <- as.data.frame(annot)
+cnames <- colnames(annot)[7:(ncol(annot))]
+annot <- annot[, c(4, 7:ncol(annot))]
+colnames(annot) <- c("id", cnames)
+
+
+
+#--- Regions to test
+#test.ids <- read.table(test.file, sep="\t", check.names=FALSE)[,1]
+test.ids <- x$name
+#test.ids <- hypo_e72_atf$name
+test.idxs <- match(test.ids, annot$id)
+
+#--- Regions to use as backgorund
+#background.ids <- read.table(background.file, sep="\t", check.names=FALSE)[,1]
+#background.idxs <- match(background.ids, annot[,1])
+background.idxs <- 1:nrow(annot)
+
+#--- Compute annotation enrichments
+n.test <- c()
+n.background <- c()
+p <- c()
+annot.idxs.list <- list(tss = grep("promoters", colnames(annot)),
+                        promoters = grep("genes", colnames(annot)),
+                        genes = grep("exons", colnames(annot)),
+                        exons = grep("introns", colnames(annot)),
+                        introns = grep("intergenic", colnames(annot)),
+                        intergenic = grep("repeats", colnames(annot)))                     
+for (annot.idxs in annot.idxs.list) {
+  # test regions
+  temp <- apply(annot[test.idxs, annot.idxs, drop=FALSE], 1, max)
+  temp[temp == 0] <- 0.001 # takes care of regions not ping any annotations
+  I.test <- (annot[test.idxs, annot.idxs, drop=FALSE] >= temp) # which annotation best s the region?
+  I.test <- I.test/(rowSums(I.test)+1e-16) # account for ties
+  
+  # background regions
+  temp <- apply(annot[background.idxs, annot.idxs, drop=FALSE], 1, max)
+  temp[temp == 0] <- 0.001 # takes care of regions not ping any annotations
+  I.background <- (annot[background.idxs, annot.idxs, drop=FALSE] >= temp) # which annotation best overlaps the region?
+  I.background <- I.background/(rowSums(I.background)+1e-16) # account for ties
+  
+  k <- nrow(I.test)
+  M <- nrow(I.background)
+  
+  for (i in 1:ncol(I.test)){
+    q <- ceiling(sum(I.test[,i]))
+    m <- ceiling(sum(I.background[,i]))
+    pval <- min(phyper(q, m, M-m, k, lower.tail=TRUE),
+                phyper(q, m, M-m, k, lower.tail=FALSE))
+    n.test <- c(n.test, q)
+    n.background <- c(n.background, m)
+    p <- c(p, pval)
+  }  
+}
+f.test <- n.test/k; f.background <- n.background/M; e <- f.test/f.background
+rv <- cbind(n.test, n.background, f.test, f.background, e, p)
+rownames(rv) <- colnames(annot)[unlist(annot.idxs.list)]
+colnames(rv) <- c("n.test", "n.background", "f.test", "f.background",  "enrichment", "p-value")
+rv <- as.data.frame(rv)
+rv$qval <- p.adjust(rv$`p-value`, method = "fdr")
+
+setwd("/share/ScratchGeneral/kseskv/annotateBed/")
+write.csv(rv, "/share/ScratchGeneral/kseskv/annotateBed/dunnart_d12_vs_d9.DMRs_hypo0.1_NUMBER_annotation.csv")
+
+rv <- fread("/share/ScratchGeneral/kseskv/annotateBed/dunnart_d12_vs_d9.DMRs_hypo0.1_NUMBER_annotation.csv")
+
+
+
+rv_filt<-as.data.frame(rv)
+rv_filt$group<-rownames(rv_filt)
+rv_filt_cut<-rv_filt[,c(1,6)]
+rv_filt_cut$V1<-factor(rv_filt_cut$V1, levels=unique(rv_filt_cut$V1))
+
+
+setwd("/share/ScratchGeneral/kseskv/annotateBed//")
+pdf("dunnart_d12_vs_d9.DMRs_hypo0.1_annot.pdf", useDingbats=FALSE, width=13, height=10) 
+print(ggplot(rv_filt_cut, aes(x=V1, y=enrichment, fill=V1)) +
+        geom_bar(stat="identity", width=0.3) +
+        ylim(0, 4) +
+        scale_fill_manual(values=c("#F2300F",   "#35274A" , "#74A089", "#E1BD6D",  "#9A8822", "#F2300F",   "#35274A" , "#74A089", "#E1BD6D",  "#9A8822")))
+dev.off()  
+```
+
+
+#d9 vs sperm hypoDMRs
+```{r}
+module load centos7.8/phuluu/R/4.0.3
+library(rtracklayer)
+library(data.table)
+library(ggplot2)
+x <- import("/share/ScratchGeneral/kseskv/annotateBed//dunnart_d9_vs_sperm.DMRs_hypo0.1_NUMBER.bed")
+
+
+annot <- fread("/share/ScratchGeneral/kseskv/annotateBed//dunnart_male_T2T_d9_vs_sperm.DMRs_hypo0.1_annotation_genes.txt", fill=TRUE)
+annot <- as.data.frame(annot)
+cnames <- colnames(annot)[7:(ncol(annot))]
+annot <- annot[, c(4, 7:ncol(annot))]
+colnames(annot) <- c("id", cnames)
+
+
+
+#--- Regions to test
+#test.ids <- read.table(test.file, sep="\t", check.names=FALSE)[,1]
+test.ids <- x$name
+#test.ids <- hypo_e72_atf$name
+test.idxs <- match(test.ids, annot$id)
+
+#--- Regions to use as backgorund
+#background.ids <- read.table(background.file, sep="\t", check.names=FALSE)[,1]
+#background.idxs <- match(background.ids, annot[,1])
+background.idxs <- 1:nrow(annot)
+
+#--- Compute annotation enrichments
+n.test <- c()
+n.background <- c()
+p <- c()
+annot.idxs.list <- list(tss = grep("promoters", colnames(annot)),
+                        promoters = grep("genes", colnames(annot)),
+                        genes = grep("exons", colnames(annot)),
+                        exons = grep("introns", colnames(annot)),
+                        introns = grep("intergenic", colnames(annot)),
+                        intergenic = grep("repeats", colnames(annot)))                     
+for (annot.idxs in annot.idxs.list) {
+  # test regions
+  temp <- apply(annot[test.idxs, annot.idxs, drop=FALSE], 1, max)
+  temp[temp == 0] <- 0.001 # takes care of regions not ping any annotations
+  I.test <- (annot[test.idxs, annot.idxs, drop=FALSE] >= temp) # which annotation best s the region?
+  I.test <- I.test/(rowSums(I.test)+1e-16) # account for ties
+  
+  # background regions
+  temp <- apply(annot[background.idxs, annot.idxs, drop=FALSE], 1, max)
+  temp[temp == 0] <- 0.001 # takes care of regions not ping any annotations
+  I.background <- (annot[background.idxs, annot.idxs, drop=FALSE] >= temp) # which annotation best overlaps the region?
+  I.background <- I.background/(rowSums(I.background)+1e-16) # account for ties
+  
+  k <- nrow(I.test)
+  M <- nrow(I.background)
+  
+  for (i in 1:ncol(I.test)){
+    q <- ceiling(sum(I.test[,i]))
+    m <- ceiling(sum(I.background[,i]))
+    pval <- min(phyper(q, m, M-m, k, lower.tail=TRUE),
+                phyper(q, m, M-m, k, lower.tail=FALSE))
+    n.test <- c(n.test, q)
+    n.background <- c(n.background, m)
+    p <- c(p, pval)
+  }  
+}
+f.test <- n.test/k; f.background <- n.background/M; e <- f.test/f.background
+rv <- cbind(n.test, n.background, f.test, f.background, e, p)
+rownames(rv) <- colnames(annot)[unlist(annot.idxs.list)]
+colnames(rv) <- c("n.test", "n.background", "f.test", "f.background",  "enrichment", "p-value")
+rv <- as.data.frame(rv)
+rv$qval <- p.adjust(rv$`p-value`, method = "fdr")
+
+setwd("/share/ScratchGeneral/kseskv/annotateBed//")
+write.csv(rv, "/share/ScratchGeneral/kseskv/annotateBed//dunnart_d9_vs_sperm.DMRs_hypo0.1_NUMBER_annotation.csv")
+
+rv <- fread("/share/ScratchGeneral/kseskv/annotateBed//dunnart_d9_vs_sperm.DMRs_hypo0.1_NUMBER_annotation.csv")
+
+
+rv_filt<-as.data.frame(rv)
+rv_filt$group<-rownames(rv_filt)
+rv_filt_cut<-rv_filt[,c(1,6)]
+rv_filt_cut$V1<-factor(rv_filt_cut$V1, levels=unique(rv_filt_cut$V1))
+
+
+setwd("/share/ScratchGeneral/kseskv/annotateBed//")
+pdf("dunnart_embryo_dunnart_d9_vs_sperm.DMRs_hypo0.1_annot.pdf", useDingbats=FALSE, width=13, height=10) 
+print(ggplot(rv_filt_cut, aes(x=V1, y=enrichment, fill=V1)) +
+        geom_bar(stat="identity", width=0.3) +
+        ylim(0, 4) +
+        scale_fill_manual(values=c("#F2300F",   "#35274A" , "#74A089", "#E1BD6D",  "#9A8822", "#F2300F",   "#35274A" , "#74A089", "#E1BD6D",  "#9A8822")))
+dev.off()
+```
+
+
+
+
