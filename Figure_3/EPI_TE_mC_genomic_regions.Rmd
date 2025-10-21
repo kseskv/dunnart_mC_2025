@@ -1,0 +1,217 @@
+###---mC correlation between E9epi and E9te at diff genomic elements
+```{r}
+bigtable <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMRs_sperm_EPI_TE/bigtable/sperm_E9epi_E9te_bigtable.tsv")
+
+CpG <- c(bigtable, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bigtable)[,-c(1:5)]  
+
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub("\\.(C|cov)$", "", colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+```
+
+
+```{r}
+genes <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/annotations/dunnart_male_T2T_genes.bed")
+genes <- as.data.frame(genes)
+genes_gr <- GRanges(seqnames=genes$V1, ranges=IRanges(start=genes$V2, end=genes$V3), strand=genes$V4, name=genes$V5)
+
+
+genes_gr <- subsetByOverlaps(genes_gr, CpG)
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, genes_gr, a, b, minCov=3)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+mcols(genes_gr) <- cbind(mcols(genes_gr), x)
+genes_df <- as.data.frame(genes_gr)
+
+x.na <- genes_df[complete.cases(genes_df),]
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+plot_data <- x.na %>%
+  select(name, E9epi_r1, E9te_r1, sperm_r1, sperm_r2) %>%
+  pivot_longer(cols = c(E9epi_r1, E9te_r1, sperm_r1, sperm_r2),
+               names_to = "Sample",
+               values_to = "Methylation")
+
+plot_data$Sample<-factor(plot_data$Sample, levels=c("sperm_r1", "sperm_r2", "E9epi_r1", "E9te_r1"))
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/annotations/figures/")
+pdf("E9epi_E9te_genebody_methylation_boxplots.pdf", width = 7, height = 8)
+print(ggplot(plot_data, aes(x = Sample, y = Methylation, fill = Sample)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = 16, outlier.size = 1.5, outlier.alpha = 0.5) +
+  scale_fill_manual(values = c("sperm_r1" = "#45B7D1",
+                               "sperm_r2" = "#96CEB4",
+                               "E9epi_r1" = "#FF6B6B",
+                               "E9te_r1" = "#4ECDC4")) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    panel.grid.major.x = element_blank(),
+    panel.border = element_rect(fill = NA, color = "black", size = 1),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    legend.position = "none"
+  ) +
+  labs(
+    title = "",
+    x = "Sample",
+    y = "Methylation Level"
+  ) +
+  ylim(0, 1))
+dev.off()
+```
+
+```{r}
+inter <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/annotations/dunnart_male_T2T_intergenic.bed")
+inter <- as.data.frame(inter)
+inter_gr <- GRanges(seqnames=inter$V1, ranges=IRanges(start=inter$V2, end=inter$V3), strand=inter$V4, name=inter$V5)
+
+
+inter_gr <- subsetByOverlaps(inter_gr, CpG)
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, inter_gr, a, b, minCov=3)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+mcols(inter_gr) <- cbind(mcols(inter_gr), x)
+inter_df <- as.data.frame(inter_gr)
+
+x.na <- inter_df[complete.cases(inter_df),]
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+plot_data <- x.na %>%
+  select(strand, E9epi_r1, E9te_r1, sperm_r1, sperm_r2) %>%
+  pivot_longer(cols = c(E9epi_r1, E9te_r1, sperm_r1, sperm_r2),
+               names_to = "Sample",
+               values_to = "Methylation")
+
+plot_data$Sample<-factor(plot_data$Sample, levels=c("sperm_r1", "sperm_r2", "E9epi_r1", "E9te_r1"))
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/annotations/figures/")
+pdf("E9epi_E9te_intergenic_methylation_boxplots.pdf", width = 7, height = 8)
+print(ggplot(plot_data, aes(x = Sample, y = Methylation, fill = Sample)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = 16, outlier.size = 1.5, outlier.alpha = 0.5) +
+  scale_fill_manual(values = c("sperm_r1" = "#45B7D1",
+                               "sperm_r2" = "#96CEB4",
+                               "E9epi_r1" = "#FF6B6B",
+                               "E9te_r1" = "#4ECDC4")) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    panel.grid.major.x = element_blank(),
+    panel.border = element_rect(fill = NA, color = "black", size = 1),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    legend.position = "none"
+  ) +
+  labs(
+    title = "",
+    x = "Sample",
+    y = "Methylation Level"
+  ) +
+  ylim(0, 1))
+dev.off()
+```
+
+```{r}
+pro <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/annotations/dunnart_male_T2T_promoter_2kb.bed")
+pro <- as.data.frame(pro)
+pro_gr <- GRanges(seqnames=pro$V1, ranges=IRanges(start=pro$V2, end=pro$V3), strand=pro$V4, name=pro$V5)
+
+
+pro_gr <- subsetByOverlaps(pro_gr, CpG)
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, pro_gr, a, b, minCov=3)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+mcols(pro_gr) <- cbind(mcols(pro_gr), x)
+pro_df <- as.data.frame(pro_gr)
+
+x.na <- pro_df[complete.cases(pro_df),]
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+plot_data <- x.na %>%
+  select(strand, E9epi_r1, E9te_r1, sperm_r1, sperm_r2) %>%
+  pivot_longer(cols = c(E9epi_r1, E9te_r1, sperm_r1, sperm_r2),
+               names_to = "Sample",
+               values_to = "Methylation")
+
+plot_data$Sample<-factor(plot_data$Sample, levels=c("sperm_r1", "sperm_r2", "E9epi_r1", "E9te_r1"))
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/annotations/figures/")
+pdf("E9epi_E9te_promoter_methylation_boxplots.pdf", width = 7, height = 8)
+print(ggplot(plot_data, aes(x = Sample, y = Methylation, fill = Sample)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = 16, outlier.size = 1.5, outlier.alpha = 0.5) +
+  scale_fill_manual(values = c("sperm_r1" = "#45B7D1",
+                               "sperm_r2" = "#96CEB4",
+                               "E9epi_r1" = "#FF6B6B",
+                               "E9te_r1" = "#4ECDC4")) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    panel.grid.major.x = element_blank(),
+    panel.border = element_rect(fill = NA, color = "black", size = 1),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    legend.position = "none"
+  ) +
+  labs(
+    title = "",
+    x = "Sample",
+    y = "Methylation Level"
+  ) +
+  ylim(0, 1))
+dev.off()
+```
+
+
+```{r}
+rep <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/annotations/dunnart_male_all_repeats_upd.bed")
+rep <- as.data.frame(rep)
+rep_gr <- GRanges(seqnames=rep$V1, ranges=IRanges(start=rep$V2, end=rep$V3), strand="*", name=rep$V4)
+
+
+rep_gr <- subsetByOverlaps(rep_gr, CpG)
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, rep_gr, a, b, minCov=3)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+mcols(rep_gr) <- cbind(mcols(rep_gr), x)
+rep_df <- as.data.frame(rep_gr)
+
+x.na <- rep_df[complete.cases(rep_df),]
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+plot_data <- x.na %>%
+  select(strand, E9epi_r1, E9te_r1, sperm_r1, sperm_r2) %>%
+  pivot_longer(cols = c(E9epi_r1, E9te_r1, sperm_r1, sperm_r2),
+               names_to = "Sample",
+               values_to = "Methylation")
+
+plot_data$Sample<-factor(plot_data$Sample, levels=c("sperm_r1", "sperm_r2", "E9epi_r1", "E9te_r1"))
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/annotations/figures/")
+pdf("E9epi_E9te_repeat_methylation_boxplots.pdf", width = 7, height = 8)
+print(ggplot(plot_data, aes(x = Sample, y = Methylation, fill = Sample)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  scale_fill_manual(values = c("sperm_r1" = "#45B7D1",
+                               "sperm_r2" = "#96CEB4",
+                               "E9epi_r1" = "#FF6B6B",
+                               "E9te_r1" = "#4ECDC4")) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    panel.grid.major.x = element_blank(),
+    panel.border = element_rect(fill = NA, color = "black", size = 1),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    legend.position = "none"
+  ) +
+  labs(
+    title = "",
+    x = "Sample",
+    y = "Methylation Level"
+  ) +
+  ylim(0, 1))
+dev.off()
+```
