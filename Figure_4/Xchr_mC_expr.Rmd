@@ -1,0 +1,1151 @@
+
+```{r}
+region <- GRanges(
+  seqnames = "h1tg000013l",
+  ranges = IRanges(start = 41454965, end = 94468682),
+  strand = "*"  # Use "*" if strand is unknown, "+" for plus, "-" for minus
+)
+
+f_mc <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/Dunnart_female.dunnart-male-hybrid_DM4hap1_hichap2.minimod.modfreqs_combined.h1tg000013l.mCG.bedGraph")
+
+f_hap1_mc <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/modfreqs_hap1.formatted.bed")
+f_hap1_mc$score <-  f_hap1_mc$name
+f_hap1_mc$score <- as.numeric(f_hap1_mc$score)
+export(f_hap1_mc, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/modfreqs_hap1.formatted.bedGraph")
+
+f_hap2_mc <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/modfreqs_hap2.formatted.bed")
+f_hap2_mc$score <-  f_hap2_mc$name
+f_hap2_mc$score <- as.numeric(f_hap2_mc$score)
+export(f_hap2_mc, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/modfreqs_hap2.formatted.bedGraph")
+
+
+#male
+m_mc <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/male/Dunnart_male.dunnart-male-hybrid_DM4hap1_hichap2.minimod.modfreqs_combined.bed")
+m_mc <- as.data.frame(m_mc)
+m_mc_gr <- GRanges(seqnames=m_mc$V1, ranges=IRanges(start=m_mc$V2, width=2), strand=m_mc$V4, score=m_mc$V7)
+m_mc_gr <- unique(m_mc_gr)
+export(m_mc_gr, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/male/Dunnart_male.dunnart-male-hybrid_DM4hap1_hichap2.minimod.modfreqs_combined.bedGraph")
+m_mc_x <- subsetByOverlaps(m_mc_gr, region)
+```
+
+
+```{r}
+m_mc_x <- subsetByOverlaps(m_mc_gr, region)
+mcols(m_mc_x)$id <- paste0(seqnames(m_mc_x), "_", start(m_mc_x))
+m_mc_x_df <- as.data.frame(m_mc_x)
+colnames(m_mc_x_df) <- paste0(colnames(m_mc_x_df), sep="_", "male")
+m_mc_x_df <- m_mc_x_df[, c(6,7)]
+
+f_mc_x <- subsetByOverlaps(f_mc, region)
+gr <- f_mc_x
+# find ranges where start > end
+swap_idx <- start(gr) > end(gr)
+# swap start and end for those ranges
+start_tmp <- start(gr)[swap_idx]
+start(gr)[swap_idx] <- end(gr)[swap_idx]
+end(gr)[swap_idx] <- start_tmp
+f_mc_x <- gr
+mcols(f_mc_x)$id <- paste0(seqnames(f_mc_x), "_", start(f_mc_x))
+f_mc_x_df <- as.data.frame(f_mc_x)
+colnames(f_mc_x_df) <- paste0(colnames(f_mc_x_df), sep="_", "female")
+f_mc_x_df <- f_mc_x_df[, c(6,7)]
+
+f_hap1_mc_x <- subsetByOverlaps(f_hap1_mc, region)
+gr <- f_hap1_mc_x
+# find ranges where start > end
+swap_idx <- start(gr) > end(gr)
+# swap start and end for those ranges
+start_tmp <- start(gr)[swap_idx]
+start(gr)[swap_idx] <- end(gr)[swap_idx]
+end(gr)[swap_idx] <- start_tmp
+f_hap1_mc_x <- gr
+mcols(f_hap1_mc_x)$id <- paste0(seqnames(f_hap1_mc_x), "_", start(f_hap1_mc_x))
+f_hap1_mc_x_df <- as.data.frame(f_hap1_mc_x)
+colnames(f_hap1_mc_x_df) <- paste0(colnames(f_hap1_mc_x_df), sep="_", "female_hap1")
+f_hap1_mc_x_df <- f_hap1_mc_x_df[, c(7,8)]
+
+f_hap2_mc_x <- subsetByOverlaps(f_hap2_mc, region)
+gr <- f_hap2_mc_x
+# find ranges where start > end
+swap_idx <- start(gr) > end(gr)
+# swap start and end for those ranges
+start_tmp <- start(gr)[swap_idx]
+start(gr)[swap_idx] <- end(gr)[swap_idx]
+end(gr)[swap_idx] <- start_tmp
+f_hap2_mc_x <- gr
+mcols(f_hap2_mc_x)$id <- paste0(seqnames(f_hap2_mc_x), "_", start(f_hap2_mc_x))
+f_hap2_mc_x_df <- as.data.frame(f_hap2_mc_x)
+colnames(f_hap2_mc_x_df) <- paste0(colnames(f_hap2_mc_x_df), sep="_", "female_hap2")
+f_hap2_mc_x_df <- f_hap2_mc_x_df[, c(7,8)]
+
+x1 <- merge(m_mc_x_df, f_mc_x_df, by.x="id_male", by.y="id_female")
+x2 <- merge(x1, f_hap1_mc_x_df, by.x="id_male", by.y="id_female_hap1")
+bt <- merge(x2, f_hap2_mc_x_df, by.x="id_male", by.y="id_female_hap2")
+saveRDS(bt, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/source_data/dunnart_Xchr_hap_mC.rds")
+bt <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/source_data/dunnart_Xchr_hap_mC.rds")
+```
+
+```{r}
+#SNPs 
+
+library(GenomicRanges)
+library(ggplot2)
+library(tidyr)
+
+
+meth_data <- bt[,-1]
+# Calculate average methylation per sample
+avg_meth <- colMeans(meth_data, na.rm = TRUE)
+print("Average methylation per sample:")
+print(avg_meth)
+
+avg_meth <- data.frame(
+  sample = c("score_male", "score_female", "score_female_hap1", "score_female_hap2"),
+  avg = c(0.6071660, 0.3750073, 0.6200794, 0.1374794)
+)
+
+
+# Reshape to long format
+meth_long <- pivot_longer(meth_data,
+                          cols = everything(),
+                          names_to = "sample",
+                          values_to = "mC_value")
+
+meth_long$sample <- factor(meth_long$sample, levels = c("score_male", "score_female", "score_female_hap1", "score_female_hap2"))
+avg_meth$sample <- factor(avg_meth$sample, levels = levels(meth_long$sample))
+
+# Create boxplot with points and scores
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/plots/")
+pdf("dunnart_Xchr_male_female_hap12_mC_boxplots.pdf", useDingbats=FALSE, width=6, height=5) 
+print(ggplot(meth_long, aes(x = sample, y = mC_value, fill = sample)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7, color = "black", lwd = 1) +
+  geom_text(data = avg_meth, aes(x = sample, y = avg + 0.05, label = round(avg, 3)),
+            inherit.aes = FALSE, fontface = "bold", size = 4) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal(base_size = 14) +
+  labs(x = "Sample", y = "Methylation (mC)", title = "Methylation Scores by Sample") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+        axis.title = element_text(face = "bold", size = 14)) +
+  coord_cartesian(ylim = c(0,1)))
+dev.off()
+  
+
+```
+
+###---combine highly mC CpGs on female X hap2 into regions
+```{r}
+f_hap2_mc_x_highmC <- f_hap2_mc_x[f_hap2_mc_x$score>=0.7]
+
+dss <- f_hap2_mc_x_highmC
+
+dss<-GRangesList(dss)
+dss_ext <- lapply(dss, function(x) promoters(x, upstream = 500, downstream = 500))
+#dss_ext<-GRangesList(dss_ext)
+
+dmrs_raw <- GRangesList()
+for(i in 1:length(dss_ext)){
+  dmrs_raw[[i]] <- reduce(dss_ext[[i]]) 
+}
+names(dmrs_raw) <- names(dss_ext)
+names(dmrs_raw) <- "high_mC"
+
+width <- lapply(dmrs_raw, function(x) x$width <- width(x))
+for(i in 1:length(dmrs_raw)){
+  dmrs_raw[[i]]$length <- width[[i]]
+}
+
+
+#dss <- GRangesList(dss)
+dss_un <- unlist(dss)
+cpg_count <- lapply(dmrs_raw, function(x) countOverlaps(x, dss_un))
+
+cpg_count <- list()
+for(i in 1:length(dmrs_raw)){
+  cpg_count[[i]] <- countOverlaps(dmrs_raw[[i]], dss[[i]])
+}
+
+
+##cpg_count_total <- lapply(dmrs_raw, function(x) countOverlaps(x, CpG))
+for(i in 1:length(dmrs_raw)){
+  dmrs_raw[[i]]$cpg_count <- cpg_count[[i]]
+  #dmrs_raw[[i]]$cpg_count_total <- cpg_count_total[[i]]
+  #dmrs_raw[[i]]$cpg_per_sign <- dmrs_raw[[i]]$cpg_count / dmrs_raw[[i]]$cpg_count_total
+}
+
+dmrs <- GRangesList()
+for(i in 1:length(dmrs_raw)){
+  dmrs[[i]] <- dmrs_raw[[i]][mcols(dmrs_raw[[i]])$length >= 1000 & mcols(dmrs_raw[[i]])$cpg_count >= 5 ]
+}
+names(dmrs) <- names(dmrs_raw)
+lapply(dmrs, length)
+
+for(i in 1:length(dmrs)){
+  dmrs[[i]] <- resize(dmrs[[i]], width(dmrs[[i]]) - 500, fix="end")
+  dmrs[[i]] <- resize(dmrs[[i]], width(dmrs[[i]]) - 498, fix="start")
+}
+lapply(dmrs, length)
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/high_mC_regions/")
+lapply(1:length(dmrs), function(i) export(dmrs[[i]], 
+                                      con = paste0(names(dmrs)[i], "_ext200_l1000_cpg5", ".bed")))
+
+high_mc <- dmrs[[1]]
+high_mc <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/high_mC_regions/high_mC_ext200_l1000_cpg5.bed")
+
+```
+
+```{r}
+genes <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/GTF_liftoff/dunnart_hybrid_DM4hap1_hichap2_GENES.bed")
+genes <- as.data.frame(genes)
+genes_gr <- GRanges(seqnames = genes$V1, ranges=IRanges(start=genes$V2, end=genes$V3), strand=genes$V6, name=genes$V4)
+export(genes_gr, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/GTF_liftoff/dunnart_hybrid_DM4hap1_hichap2_GENES_gr.bed")
+
+genes_region <- subsetByOverlaps(genes_gr, region)
+
+genes_high_mc <- subsetByOverlaps(genes_gr, high_mc)
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/high_mC_regions/")
+write.table(genes_high_mc$name, row.names = F, col.names = F, quote=F, "dunnart_F_Xchr_hap2_high_mC.txt", sep="\t")
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/high_mC_regions/")
+write.table(genes_gr$name, row.names = F, col.names = F, quote=F, "dunnart_F_Xchr_all_genes.txt", sep="\t")
+
+```
+
+###XCI status
+```{r}
+class <- read.csv("/Users/ksenia/Documents/Lab_Garvan/projects/XCI_B_cells/bone_marrow/human_CD34_BMMC/Annotations/genes_by_cell_type_XCI.csv")
+escape <- class[which(class$XCI_status=="escape"),]
+inactive <- class[which(class$XCI_status=="inactive"),]
+variable <- class[which(class$XCI_status=="variable"),]
+
+```
+
+
+###---escape from XCI
+```{r}
+dunnart_ortho <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Annotations/orthofinder/Dunnart_asm_12-2021_sm.protein.geneID.tsv")
+dunnart_ortho <- as.data.frame(dunnart_ortho)
+dunnart_ortho_human <- dunnart_ortho[which(dunnart_ortho$Species=="Homo_sapiens.GRCh38.pep.all"),]
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Annotations/orthofinder/")
+write.table(dunnart_ortho_human, row.names = F, col.names = T, quote=F, "Dunnart_asm_12-2021_sm.protein.geneID__v__Homo_sapiens.GRCh38.pep.all.tsv", sep="\t")
+
+#xist <- ENSG00000229807
+#h <- dunnart_ortho_human
+#h$Orthologs <- sub("\\..*$", "", h$Orthologs)
+#xist <- h[grep("ENSG00000229807", h$Orthologs),]
+
+dunnart_ortho_human_high_mC <- dunnart_ortho_human[which(dunnart_ortho_human$`Dunnart_asm_12-2021_sm.protein.geneID` %in% genes_high_mc$name),]
+# Subset rows where the last column does NOT contain a comma
+filtered_genes <- dunnart_ortho_human_high_mC[!grepl(",", dunnart_ortho_human_high_mC$Orthologs), ]
+
+# Remove version numbers from gene IDs in the last column
+filtered_genes$Orthologs <- sub("\\..*$", "", filtered_genes$Orthologs)
+
+write.table(unique(filtered_genes$Orthologs), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/high_mC_regions/genes_dunnart_female_Xchr_hap2_high_mC_GENE_NAME_human.txt", sep = "\t", quote= FALSE, row.names = FALSE, col.names = FALSE)
+
+
+#background
+
+genes_X <- genes_gr[seqnames(genes_gr)=="h1tg000013l"]
+dunnart_ortho_human_all_X_genes <- dunnart_ortho_human[which(dunnart_ortho_human$`Dunnart_asm_12-2021_sm.protein.geneID` %in% genes_X$name),]
+# Subset rows where the last column does NOT contain a comma
+filtered_genes_all <- dunnart_ortho_human_all_X_genes[!grepl(",", dunnart_ortho_human_all_X_genes$Orthologs), ]
+
+# Remove version numbers from gene IDs in the last column
+filtered_genes_all$Orthologs <- sub("\\..*$", "", filtered_genes_all$Orthologs)
+
+write.table(unique(filtered_genes_all$Orthologs),  "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/high_mC_regions/genes_dunnart_ALL_Xchr_GENE_NAME_human.txt", sep = "\t", quote= FALSE, row.names = FALSE, col.names = FALSE)
+
+name_all_X <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/high_mC_regions/genes_dunnart_ALL_Xchr_GENE_NAME_name_human.csv")
+name_all_X <- as.data.frame(name_all_X)
+name_all_X$x_status <- ifelse(name_all_X$name %in% escape$Gene, "escape", ifelse(name_all_X$name %in% variable$Gene, "variable", ifelse(name_all_X$name %in% inactive$Gene, "inactive", "unknown")))
+name_all_X_filt <- name_all_X[,c(3,6)]
+
+
+genes_high_mc_escape <- genes_high_mc[genes_high_mc$name %in% escape$Gene] #KDM5C, IQSEC2
+genes_high_mc_inactive <- genes_high_mc[genes_high_mc$name %in% inactive$Gene] #KDM5C, IQSEC2
+genes_high_mc_variable <- genes_high_mc[genes_high_mc$name %in% variable$Gene] #KDM5C, IQSEC2
+```
+
+
+```{r}
+
+library(tidyverse)
+library(ggplot2)
+
+
+# All X chromosome genes with inactivation status
+x_genes_all <- name_all_X_filt
+colnames(x_genes_all) <-c("name", "x_status")
+
+# Highly methylated genes
+filtered_genes_name <- name_all_X[which(name_all_X$initial_alias %in% filtered_genes$Orthologs),]
+highly_methylated <- filtered_genes_name$name
+
+#hypergeometric test
+run_enrichment <- function(all_genes, query_genes, category_col = "x_status") {
+    
+    # Get the gene name column (handle both "gene_name" and "name")
+    gene_col <- if("gene_name" %in% names(all_genes)) "gene_name" else "name"
+    
+    # Filter query genes to those in background
+    query_genes <- query_genes[query_genes %in% all_genes[[gene_col]]]
+    
+    # Calculate for each category (skip NAs)
+    categories <- unique(all_genes[[category_col]])
+    categories <- categories[!is.na(categories)]
+    results <- data.frame()
+    
+    for (cat in categories) {
+        # Setup for hypergeometric test
+        cat_genes <- all_genes[[gene_col]][all_genes[[category_col]] == cat & !is.na(all_genes[[category_col]])]
+        
+        # Hypergeometric parameters:
+        # q = number of methylated genes in category (success in sample)
+        # m = total genes in category (success in population)  
+        # n = total genes NOT in category (failure in population)
+        # k = total methylated genes (sample size)
+        
+        q <- sum(query_genes %in% cat_genes)  # observed
+        m <- length(cat_genes)                 # category size
+        n <- sum(!is.na(all_genes[[category_col]])) - m  # non-category size (excluding NAs)
+        k <- length(query_genes)                # query size
+        
+        # Expected and O/E ratio
+        expected <- k * m / sum(!is.na(all_genes[[category_col]]))
+        oe_ratio <- q / expected
+        
+        # Hypergeometric test (one-tailed for enrichment)
+        p_enrichment <- phyper(q - 1, m, n, k, lower.tail = FALSE)
+        
+        # Two-tailed p-value
+        p_depletion <- phyper(q, m, n, k, lower.tail = TRUE)
+        p_value <- 2 * min(p_enrichment, p_depletion)
+        p_value <- min(p_value, 1)  # Cap at 1
+        
+        results <- rbind(results, data.frame(
+            category = cat,
+            n_category = m,
+            n_observed = q,
+            n_expected = round(expected, 2),
+            OE_ratio = round(oe_ratio, 3),
+            p_value = p_value,
+            direction = ifelse(oe_ratio > 1, "enriched", "depleted")
+        ))
+    }
+    
+    # Multiple testing correction
+    results$p_adjusted <- p.adjust(results$p_value, method = "BH")
+    results$significance <- cut(results$p_adjusted, 
+                                breaks = c(0, 0.001, 0.01, 0.05, 1),
+                                labels = c("***", "**", "*", "ns"))
+    
+    return(results[order(results$p_value), ])
+}
+
+#run
+results <- run_enrichment(x_genes_all, highly_methylated)
+
+
+
+#plot
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/high_mC_regions")
+# Plot 1: O/E ratios with significance
+p1 <- ggplot(results, aes(x = category, y = OE_ratio, fill = direction)) +
+    geom_bar(stat = "identity") +
+    geom_hline(yintercept = 1, linetype = "dashed", alpha = 0.5) +
+    geom_text(aes(label = significance), vjust = -0.5, size = 5) +
+    scale_fill_manual(values = c("enriched" = "#d62728", "depleted" = "#1f77b4")) +
+    labs(title = "Enrichment of Highly Methylated X Genes",
+         subtitle = paste0("n = ", length(highly_methylated), " methylated genes"),
+         x = "X-inactivation Status", 
+         y = "Observed/Expected Ratio") +
+    theme_minimal() +
+    theme(legend.position = "none")
+
+ggsave("x_enrichment.pdf", p1, width = 4, height = 5)
+
+# Plot 2: Volcano plot
+p2 <- ggplot(results, aes(x = log2(OE_ratio), y = -log10(p_value))) +
+    geom_point(aes(size = n_observed, color = category), alpha = 0.7) +
+    geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red", alpha = 0.5) +
+    geom_text(aes(label = category), vjust = -1, size = 3) +
+    labs(title = "Enrichment Volcano Plot",
+         x = "log2(O/E Ratio)", 
+         y = "-log10(p-value)",
+         size = "Observed\nCount") +
+    theme_minimal()
+
+ggsave("x_volcano.pdf", p2, width = 7, height = 5)
+
+
+# Save results
+write.csv(results, "enrichment_results.csv", row.names = FALSE)
+
+cat("\n=== FILES SAVED ===\n")
+cat("- enrichment_results.csv\n")
+cat("- x_enrichment.pdf\n")
+cat("- x_volcano.pdf\n")
+```
+
+
+###gene body mC X chr
+```{r}
+library(pheatmap)
+library(dplyr)
+library(GenomicRanges)
+
+# Create GRanges from methylation data
+meth_gr <- GRanges(
+ seqnames = sub("_.*", "", bt$id_male),
+ ranges = IRanges(as.numeric(sub(".*_", "", bt$id_male)), width=1),
+ score_male = bt$score_male,
+ score_female = bt$score_female,
+ score_female_hap1 = bt$score_female_hap1,
+ score_female_hap2 = bt$score_female_hap2
+)
+
+# Find overlaps and calculate averages
+overlaps <- findOverlaps(meth_gr, genes_X)
+
+avg_mC <- data.frame(
+ gene = genes_X$name[subjectHits(overlaps)],
+ score_male = meth_gr$score_male[queryHits(overlaps)],
+ score_female = meth_gr$score_female[queryHits(overlaps)],
+ score_female_hap1 = meth_gr$score_female_hap1[queryHits(overlaps)],
+ score_female_hap2 = meth_gr$score_female_hap2[queryHits(overlaps)]
+) %>%
+ group_by(gene) %>%
+ summarise(across(everything(), \(x) mean(x, na.rm = TRUE)))
+
+# Keep genomic order - match to original gene order in genes_X
+avg_mC <- avg_mC[match(genes_X$name, avg_mC$gene), ] %>%
+ filter(!is.na(gene))
+
+# Create heatmap
+mat <- as.matrix(avg_mC[,-1])
+rownames(mat) <- avg_mC$gene
+colnames(mat) <- c("Male", "Female", "Female Hap1", "Female Hap2")
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("gene_mC_heatmap.pdf", width = 8, height = 10)
+pheatmap(mat,
+        cluster_rows = FALSE,
+        cluster_cols = FALSE,
+        color = colorRampPalette(c("#2166AC", "white", "#B2182B"))(100),
+        main = "Average Methylation per Gene")
+dev.off()
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("gene_mC_heatmap_v2.pdf", width = 10, height = 12)
+pheatmap(mat,
+        cluster_rows = FALSE,
+        cluster_cols = FALSE,
+        color = colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0", 
+                                  "white", 
+                                  "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(100),
+        main = "Average DNA Methylation per Gene on X Chromosome",
+        fontsize = 12,
+        fontsize_row = 8,
+        fontsize_col = 11,
+        cellwidth = 60,
+        cellheight = 0.8,
+        border_color = "gray90",
+        na_col = "gray95",
+        #angle_col = 45,
+        legend_breaks = c(0, 0.25, 0.5, 0.75, 1),
+        legend_labels = c("0%", "25%", "50%", "75%", "100%"),
+        annotation_legend = TRUE,
+        show_rownames = TRUE,
+        show_colnames = TRUE,
+        gaps_col = c(1, 2),  # Add visual separation between male/female samples
+        display_numbers = FALSE,  # Set to TRUE if you want values in cells
+        number_color = "gray30",
+        number_format = "%.2f",
+        fontsize_number = 6,
+        legend_title = "Methylation",
+        annotation_names_col = FALSE,
+        main_fontsize = 14)
+dev.off()
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("gene_mC_heatmap_v3_cluster.pdf", width = 10, height = 12)
+pheatmap(mat,
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+  color = colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+                             "white",
+                             "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(100),
+  main = "Average DNA Methylation per Gene on X Chromosome",
+  fontsize = 12,          # controls all text
+  fontsize_row = 8,
+  fontsize_col = 11,
+  cellwidth = 60,
+  cellheight = 6,
+  border_color = "gray90",
+  na_col = "gray95",
+  legend_breaks = c(0, 0.25, 0.5, 0.75, 1),
+  legend_labels = c("0%", "25%", "50%", "75%", "100%"),
+  annotation_legend = TRUE,
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  gaps_col = c(1, 2),
+  display_numbers = FALSE,
+  number_color = "gray30",
+  number_format = "%.2f",
+  fontsize_number = 6,
+  annotation_names_col = FALSE
+)
+dev.off()
+
+
+pheatmap(mat,
+        cluster_rows = TRUE,
+        cluster_cols = FALSE,
+        color = colorRampPalette(c("#2166AC", "white", "#B2182B"))(100),
+        main = "Average Methylation per Gene")
+
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+
+
+f_rep1_ase <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/ASEReadCounter/PPTXSN250556_pass_barcode12_dunnart_female_liver_RNAseq_rep1_sorted_marked_dup_readgroup_h1tg000013l_chrX_split_ASE_counts.tsv")
+f_rep1_ase <- as.data.frame(f_rep1_ase)
+f_rep1_ase$id <- paste0(f_rep1_ase$contig, sep="_", f_rep1_ase$position)
+f_rep1_ase_sel <- f_rep1_ase[,c(14,6,7)]
+colnames(f_rep1_ase_sel) <- paste0("F_rep1_", colnames(f_rep1_ase_sel))
+
+f_rep2_ase <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/ASEReadCounter/PPTXSN250556_pass_barcode13_dunnart_female_liver_RNAseq_rep2_sorted_marked_dup_readgroup_h1tg000013l_chrX_split_ASE_counts.tsv")
+f_rep2_ase <- as.data.frame(f_rep2_ase)
+f_rep2_ase$id <- paste0(f_rep2_ase$contig, sep="_", f_rep2_ase$position)
+f_rep2_ase_sel <- f_rep2_ase[,c(14,6,7)]
+colnames(f_rep2_ase_sel) <- paste0("F_rep2_", colnames(f_rep2_ase_sel))
+
+F_ase_sel <- merge(f_rep1_ase_sel, f_rep2_ase_sel, by.x="F_rep1_id", by.y="F_rep2_id")
+
+#F_ase_sel <- F_ase_sel %>%
+#  separate(F_rep1_id, into = c("seqnames", "start"), sep = "_")
+
+F_ase_sel_gr <- GRanges(seqnames=F_ase_sel$seqnames, ranges=IRanges(start=as.numeric(F_ase_sel$start), width=2), F_rep1_refCount=F_ase_sel$F_rep1_refCount,F_rep1_altCount=F_ase_sel$F_rep1_altCount, F_rep2_refCount=F_ase_sel$F_rep2_refCount, F_rep2_altCount=F_ase_sel$F_rep2_altCount)
+
+hits <- findOverlaps(F_ase_sel_gr, genes_X)
+
+# initialize a column for gene names
+F_ase_sel_gr$gene <- NA_character_
+
+# assign gene names based on overlap
+F_ase_sel_gr$gene[queryHits(hits)] <- genes_X$name[subjectHits(hits)]
+
+
+
+df <- as.data.frame(F_ase_sel_gr)
+
+df_sum <- df %>%
+  filter(!is.na(gene)) %>%
+  group_by(gene) %>%
+  summarise(
+    F_rep1_refCount = sum(F_rep1_refCount, na.rm = TRUE),
+    F_rep1_altCount = sum(F_rep1_altCount, na.rm = TRUE),
+    F_rep2_refCount = sum(F_rep2_refCount, na.rm = TRUE),
+    F_rep2_altCount = sum(F_rep2_altCount, na.rm = TRUE),
+    .groups = "drop"
+  )
+df_sum <- as.data.frame(df_sum)
+#df_sum$F_rep1_refCount <- log(df_sum$F_rep1_refCount+0.01)
+#df_sum$F_rep1_altCount <- log(df_sum$F_rep1_altCount+0.01)
+#df_sum$F_rep2_refCount <- log(df_sum$F_rep2_refCount+0.01)
+#df_sum$F_rep2_altCount <- log(df_sum$F_rep2_altCount+0.01)
+
+
+# convert mat to data.frame and keep rownames as a column
+mat_df <- as.data.frame(mat) %>%
+  tibble::rownames_to_column("gene")
+
+# join
+mat_joined <- mat_df %>%
+  left_join(df_sum, by = "gene")
+
+# if you want to keep rownames
+mat_joined <- mat_joined %>%
+  tibble::column_to_rownames("gene")
+
+```
+
+```{r}
+# Split into methylation vs expression
+library(viridis)
+mat_mc   <- as.matrix(mat_joined[,1:4])   # methylation (cols 1-4)
+mat_expr <- as.matrix(mat_joined[,5:8])   # expression (cols 5-8)
+
+# Color scales
+#col_mc   <- colorRamp2(c(0,0.5,1), c("blue","white","red"))
+col_mc   <- colorRamp2(c(0,0.5,1), c("navy","white","firebrick"))
+
+
+col_expr <- circlize::colorRamp2(
+  c(min(mat_expr, na.rm=TRUE),
+    median(mat_expr, na.rm=TRUE),
+    max(mat_expr, na.rm=TRUE)),
+  viridis(3)  # 3-point scale (low-mid-high)
+)
+
+#library(scico)
+
+#col_expr <- circlize::colorRamp2(
+#  seq(min(mat_expr, na.rm=TRUE), max(mat_expr, na.rm=TRUE), length=100),
+#  scico(100, palette="batlow")   # or "roma", "vik"
+#)
+
+
+# Heatmaps
+ht1 <- Heatmap(mat_mc,
+               name="mC",
+               col=col_mc,
+               cluster_rows=FALSE,
+               cluster_columns=FALSE,
+               row_names_side="left")
+
+ht2 <- Heatmap(mat_expr,
+               name="Expression",
+               col=col_expr,
+               cluster_rows=FALSE,
+               cluster_columns=FALSE,
+               show_row_names=FALSE)
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("dunnart_liver_methylation_expr_heatmap_count.pdf", width = 10, height = 14)
+print(ht1 + ht2)
+dev.off()
+```
+
+
+```{r}
+library(tidyverse)
+library(viridis)
+library(patchwork)
+
+# Keep rownames (genes) as column
+df <- mat_joined %>%
+  rownames_to_column("gene")
+
+# Long format for methylation
+df_mc <- df %>%
+  pivot_longer(cols = 2:5, names_to = "sample", values_to = "mC")
+
+# Long format for expression
+#df_expr <- df %>%
+#  pivot_longer(cols = 6:9, names_to = "sample", values_to = "expr") %>%
+#  mutate(expr_log = log(expr+0.01))   # log(x+1), safe
+
+df_expr <- df %>%
+  pivot_longer(cols = 6:9, names_to = "sample", values_to = "expr") %>%
+  mutate(expr_log = expr)   # log(x+1), safe
+
+
+df_expr <- df_expr %>%
+  mutate(expr_log = ifelse(is.na(expr_log), 0, expr_log))
+
+library(tidyverse)
+library(viridis)
+
+
+
+df_expr2 <- df_expr %>%
+  mutate(expr = ifelse(is.na(expr), 0, expr),
+         expr_log = expr,
+         gene = factor(gene, levels = unique(gene)),
+         sample = factor(sample, levels = c("F_rep1_refCount","F_rep1_altCount",
+                                           "F_rep2_refCount","F_rep2_altCount")))
+
+
+df_expr2 <- df_expr2 %>%
+  mutate(
+    count_type = ifelse(str_detect(sample, "alt"), "altCount", "refCount"),
+    replicate = str_replace(sample, "_(ref|alt)Count", ""),
+    facet_var = paste0(replicate, "_", count_type) # combine for wrap
+  )
+
+
+ggplot(df_expr2, aes(x = expr, y = gene, fill = count_type)) +
+  geom_col(position = position_dodge(width = 0.8)) +
+  facet_wrap(~facet_var, scales = "free_x", ncol = 4) +
+  scale_fill_manual(
+    name = "Count type",
+    values = c("refCount" = "#1f77b4",   # blue
+               "altCount" = "#ff7f0e")   # orange
+  ) +
+  theme_minimal() +
+  labs(x = "Expression", y = "Gene") +
+  theme(
+    axis.text.y = element_text(size = 10),
+    strip.text = element_text(size = 12, face = "bold"),
+    legend.position = "top"
+  )
+
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("dunnart_liver_methylation_expr_barplot_counts.pdf", width = 10, height = 14)
+print(ggplot(df_expr2, aes(x = expr_log, y = gene, fill = sample)) +
+  geom_col(position = position_dodge(width = 0.8)) +  # side-by-side bars
+  facet_wrap(. ~ sample, ncol=4) +
+  scale_fill_viridis_d(name = "Samples") +
+  theme_minimal() +
+  labs(x = "log(expr + 1)", y = "Gene") +
+  theme(axis.text.y = element_text(size = 10)))
+dev.off()
+```
+
+```{r}
+
+library(ggplot2)
+library(tibble)
+library(tidyr)
+
+# Prepare long-format methylation data
+mat_long <- mat %>%
+  as.data.frame() %>%
+  rownames_to_column("gene") %>%
+  pivot_longer(
+    cols = -gene,
+    names_to = "sample",
+    values_to = "mC"
+  ) %>%
+  mutate(
+    gene = factor(gene, levels = rev(rownames(mat)))  # top-to-bottom order
+  )
+
+# Heatmap with blue → white → red palette
+mat_long$sample <- factor(mat_long$sample, levels=c("Male", "Female", "Female Hap1", "Female Hap2"))
+p_heat <- ggplot(mat_long, aes(x = sample, y = gene, fill = mC)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = c("#4575b4", "#ffffff", "#d73027"),  # blue → white → red
+    limits = c(0, 1),
+    name = "mC (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.title = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+# expression barplot (force same gene order)
+df_expr2$gene <- factor(df_expr2$gene, levels = levels(mat_long$gene))
+df_expr2$facet_var <- factor(df_expr2$facet_var, 
+                              levels = c("F_rep1_refCount", "F_rep1_altCount",
+                                        "F_rep2_refCount", "F_rep2_altCount"))
+
+
+p_expr <- ggplot(df_expr2, aes(x = expr, y = gene, fill = count_type)) +
+  geom_col(position = position_dodge(width = 0.8)) +
+  facet_wrap(~facet_var, scales = "free_x", ncol = 4) +
+  scale_fill_manual(
+    name = "Count type",
+    values = c("refCount" = "#1f77b4",   # blue
+               "altCount" = "#ff7f0e")   # orange
+  ) +
+  theme_minimal() +
+  labs(x = "Expression", y = NULL) +
+  theme(
+    axis.text.y = element_text(size = 10),
+    strip.text = element_text(size = 12, face = "bold"),
+    legend.position = "top"
+  )
+
+# combine side by side
+p_heat | p_expr
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("dunnart_liver_methylation_heatmap_expr_barplot_FINAL.pdf", width = 14, height = 12)
+print(p_heat | p_expr)
+dev.off()
+```
+
+```{r}
+# sqrt transformation 
+p_expr <- ggplot(df_expr2, aes(x = expr, y = gene, fill = count_type)) +
+  geom_col(position = position_dodge(width = 0.8)) +
+  facet_wrap(~facet_var,  ncol = 4) + #scales = "free_x",
+  scale_fill_manual(
+    name = "Count type",
+    values = c("refCount" = "#1f77b4",   # blue
+               "altCount" = "#ff7f0e")   # orange
+  ) +
+  scale_x_sqrt() +  # Square root scale
+  theme_minimal() +
+  labs(x = "Expression (sqrt scale)", y = NULL) +
+  theme(
+    axis.text.y = element_text(size = 10),
+    strip.text = element_text(size = 12, face = "bold"),
+    legend.position = "top"
+  )
+
+p_heat | p_expr
+
+
+
+
+p_heat | p_expr
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("dunnart_liver_methylation_heatmap_expr_sqroot_barplot_FINAL_samescale_v1.pdf", width = 14, height = 12)
+print(p_heat | p_expr)
+dev.off()
+```
+
+
+
+
+###---ref and alt allele RNA-seq counts
+```{r}
+df <- F_ase_sel[,-c(1:2)]
+m <- melt(df)
+m$variable <- factor(m$variable, levels = c("F_rep1_refCount", "F_rep1_altCount", "F_rep2_refCount", "F_rep2_altCount"))
+m$value <- as.numeric(as.character(m$value))
+m$value <- log(m$value+0.01)
+# Create boxplot with points and scores
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("dunnart_Xchr_female_liver_ASE_expr_boxplots.pdf", useDingbats=FALSE, width=4, height=5) 
+print(ggplot(m, aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7, color = "black", lwd = 1) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal(base_size = 14) +
+  labs(x = "Sample", y = "Expression, log(counts)", title = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+        axis.title = element_text(face = "bold", size = 14)) +
+  coord_cartesian(ylim = c(min(m$value),max(m$value))))
+dev.off()
+
+### sqrt
+df <- F_ase_sel[,-c(1:2)]
+m <- melt(df)
+m$variable <- factor(m$variable, levels = c("F_rep1_refCount", "F_rep1_altCount", "F_rep2_refCount", "F_rep2_altCount"))
+m$value <- as.numeric(as.character(m$value))
+
+# Create boxplot with points and scores
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("dunnart_Xchr_female_liver_ASE_expr_boxplots_sqrt.pdf", useDingbats=FALSE, width=4, height=5) 
+print(ggplot(m, aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot( alpha = 0.7, color = "black", lwd = 1) + #outlier.shape = NA,
+  scale_fill_brewer(palette = "Set2") +
+      scale_y_sqrt() + 
+  theme_minimal(base_size = 14) +
+  labs(x = "Sample", y = "Expression, sqrt(counts)", title = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+        axis.title = element_text(face = "bold", size = 14)) +
+  coord_cartesian(ylim = c(min(m$value),max(m$value))))
+dev.off()
+
+```
+
+```{r}
+genes_high_mc <- subsetByOverlaps(genes_gr, high_mc)
+
+genes_region$type <- ifelse(genes_region$name %in% genes_high_mc$name, "high_mC", "low_mC")
+genes_region_df <-as.data.frame(genes_region)
+genes_region_df <- genes_region_df[, c(6,7)]
+
+df_sum_type <- merge(df_sum, genes_region_df, by.x="gene", by.y="name")
+saveRDS(df_sum_type, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/genes_ref_alt_Count_high_low_mC.rds")
+df <- df_sum_type[,-c(1)]
+m <- melt(df)
+m$variable <- factor(m$variable, levels = c("F_rep1_refCount", "F_rep1_altCount", "F_rep2_refCount", "F_rep2_altCount"))
+m$value <- as.numeric(as.character(m$value))
+
+# Create boxplot with points and scores
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("dunnart_Xchr_high_vs_low_mC_genes_female_liver_ASE_expr_boxplots_sqrt.pdf", useDingbats=FALSE, width=4, height=5)
+print(ggplot(m, aes(x = type, y = value, fill = variable)) +
+  geom_boxplot( alpha = 0.7, color = "black", lwd = 1) + #outlier.shape = NA,
+  scale_fill_brewer(palette = "Set2") +
+      scale_y_sqrt() + 
+  theme_minimal(base_size = 14) +
+  labs(x = "Sample", y = "Expression, sqrt(counts)", title = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+        axis.title = element_text(face = "bold", size = 14)) +
+  coord_cartesian(ylim = c(min(m$value),max(m$value))))
+dev.off()
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R/")
+pdf("dunnart_Xchr_high_vs_low_mC_genes_female_liver_ASE_expr_boxplots_sqrt.pdf", useDingbats=FALSE, width=4, height=5)
+print(ggplot(m, aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot( alpha = 0.7, color = "black", lwd = 1) + #outlier.shape = NA,
+      facet_wrap(~type, scales = "free_x", ncol = 4) +
+  scale_fill_brewer(palette = "Set2") +
+      scale_y_sqrt() + 
+  theme_minimal(base_size = 14) +
+  labs(x = "Sample", y = "Expression, sqrt(counts)", title = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+        axis.title = element_text(face = "bold", size = 14)) +
+  coord_cartesian(ylim = c(min(m$value),max(m$value))))
+dev.off()
+
+
+
+# Split variable into sample and count_type
+m2 <- m %>%
+  separate(variable, into = c("sample", "count_type"), sep = "_(?=refCount|altCount)") %>%
+  mutate(
+    count_type = ifelse(grepl("ref", count_type), "Ref", "Alt")
+  )
+
+# Plot ref vs alt counts side by side for each sample
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R")
+pdf("dunnart_Xchr_high_vs_low_mC_genes_female_liver_ASE_expr_boxplots_sqrt.pdf",
+    useDingbats = FALSE, width = 5, height = 5)
+print(ggplot(m2, aes(x = sample, y = value, fill = count_type)) +
+    geom_boxplot(alpha = 0.7, color = "black", lwd = 1,
+                 position = position_dodge(width = 0.8)) +
+    facet_wrap(~type, scales = "free_x") +
+    scale_fill_manual(values = c("Ref" = "#1f77b4", "Alt" = "#ff7f0e")) +
+    scale_y_sqrt() +
+    theme_minimal(base_size = 14) +
+    labs(x = "Sample", y = "Expression (sqrt counts)", fill = "Allele") +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "top",
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+      axis.title = element_text(face = "bold", size = 14)
+    )
+)
+
+dev.off()
+
+```
+
+
+```{r}
+df2 <- df
+#AI = 2 * abs(0.5 – (Xm/Xm+Xp))
+
+df2$AI_rep1 <- 2*abs(0.5 - (df2$F_rep1_refCount) / (df2$F_rep1_refCount + df2$F_rep1_altCount))
+df2$AI_rep2 <- 2*abs(0.5 - (df2$F_rep2_refCount) / (df2$F_rep2_refCount + df2$F_rep2_altCount))
+
+#df2$AI_rep1 <- abs(df2$F_rep1_refCount - df2$F_rep1_altCount) / (df2$F_rep1_refCount + df2$F_rep1_altCount)
+#df2$AI_rep2 <- abs(df2$F_rep2_refCount - df2$F_rep2_altCount) / (df2$F_rep2_refCount + df2$F_rep2_altCount)
+df2 <- df2[,c(5:7)]
+a <- melt(df2, id.vars="type")
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R")
+pdf("dunnart_Xchr_high_vs_low_mC_genes_Allelic_Imbalance_AI_Daisy_v2.pdf",
+    useDingbats = FALSE, width = 5, height = 5)
+print(ggplot(a, aes(x = type, y = value, fill = variable)) +
+  geom_boxplot(width=0.5, alpha=0.8, outlier.shape=21, outlier.size=2) +
+  scale_fill_manual(values = c("#2E86AB", "#A23B72"),
+                    labels = c("Replicate 1", "Replicate 2")) +
+  labs(x="Gene Group", y="Allelic Imbalance Index", fill="") +
+  theme_minimal(base_size=14) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "top",
+    axis.text = element_text(color = "black"),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  ) +
+  ylim(0, 1))
+dev.off()
+
+
+df2 <- df
+#AI = 2 * abs(0.5 – (Xm/Xm+Xp))
+df2$AI_rep1 <- 2*abs(0.5 - (df2$F_rep1_refCount) / (df2$F_rep1_refCount + df2$F_rep1_altCount))
+df2$AI_rep2 <- 2*abs(0.5 - (df2$F_rep2_refCount) / (df2$F_rep2_refCount + df2$F_rep2_altCount))
+
+df2_lowAI <- df2[which(df2$AI_rep1 < 0.2),]
+
+
+F_ase_sel_gr
+alt_high <- F_ase_sel_gr[F_ase_sel_gr$F_rep1_altCount > F_ase_sel_gr$F_rep1_refCount & F_ase_sel_gr$F_rep1_refCount==0]
+
+h1tg000013l:46,017,213-46,034,937 - RSX??
+  
+  h1tg000013l:46,025,315-46,025,374
+  CTTGATTTTTATTTGAATTAGAGCTTCATTTTAGAAATTTTCAAAATATCCGTATGTTAAA
+  blast - frmd7...
+  
+  
+  
+  
+
+  
+```
+
+
+###---putative escapees on X chr
+```{r}
+df2 <- df_sum
+#AI = 2 * abs(0.5 – (Xm/Xm+Xp))
+df2$AI_rep1 <- 2*abs(0.5 - (df2$F_rep1_refCount) / (df2$F_rep1_refCount + df2$F_rep1_altCount))
+df2$AI_rep2 <- 2*abs(0.5 - (df2$F_rep2_refCount) / (df2$F_rep2_refCount + df2$F_rep2_altCount))
+df2_lowishAI <- df2[which(df2$AI_rep1 < 0.9 & df2$AI_rep2 < 0.9),] # & df2$F_rep1_altCount >=5 & df2$F_rep2_altCount >=5
+length(unique(df2_lowishAI$gene))
+unique(df2_lowishAI$gene)
+
+UTP14A <- df2[grep("UTP14A", df2$gene),]
+KDM5C <- df2[grep("KDM5C", df2$gene),]
+IQSEC2 <- df2[grep("IQSEC2", df2$gene),]
+MTMR1 <- df2[grep("MTMR1", df2$gene),]
+GJB1 <- df2[grep("GJB1", df2$gene),]
+
+library(ggplot2)
+library(ggrepel)
+
+
+# Filter for X chromosome and your genes of interest
+genes_to_plot <- unique(df2_lowishAI$gene)
+x_genes <- genes_gr[genes_gr$name %in% genes_to_plot & seqnames(genes_gr) == "h1tg000013l"]
+
+# Convert to dataframe for plotting
+gene_df <- data.frame(
+  gene = x_genes$name,
+  start = start(x_genes),
+  end = end(x_genes),
+  midpoint = (start(x_genes) + end(x_genes)) / 2,
+  strand = as.character(strand(x_genes))
+)
+
+# Sort by position
+gene_df <- gene_df %>% arrange(midpoint)
+
+# Assign y-positions based on strand
+# Positive strand genes go above, negative strand below
+# Stagger heights to avoid overlap
+assign_label_positions <- function(df, min_distance = 5e6) {
+  df$label_y <- NA
+  
+  # Process positive strand genes
+  pos_genes <- which(df$strand == "+")
+  heights_pos <- c(0.4, 0.7, 1.0, 1.3)  # Multiple heights above
+  height_idx <- 1
+  
+  for(i in pos_genes) {
+    if(i == pos_genes[1]) {
+      df$label_y[i] <- heights_pos[1]
+    } else {
+      prev_pos <- pos_genes[pos_genes < i]
+      if(length(prev_pos) > 0) {
+        last_idx <- prev_pos[length(prev_pos)]
+        if(df$midpoint[i] - df$midpoint[last_idx] < min_distance) {
+          height_idx <- (height_idx %% length(heights_pos)) + 1
+        } else {
+          height_idx <- 1
+        }
+      }
+      df$label_y[i] <- heights_pos[height_idx]
+    }
+  }
+  
+  # Process negative strand genes
+  neg_genes <- which(df$strand == "-")
+  heights_neg <- c(-0.4, -0.7, -1.0, -1.3)  # Multiple heights below
+  height_idx <- 1
+  
+  for(i in neg_genes) {
+    if(i == neg_genes[1]) {
+      df$label_y[i] <- heights_neg[1]
+    } else {
+      prev_neg <- neg_genes[neg_genes < i]
+      if(length(prev_neg) > 0) {
+        last_idx <- prev_neg[length(prev_neg)]
+        if(df$midpoint[i] - df$midpoint[last_idx] < min_distance) {
+          height_idx <- (height_idx %% length(heights_neg)) + 1
+        } else {
+          height_idx <- 1
+        }
+      }
+      df$label_y[i] <- heights_neg[height_idx]
+    }
+  }
+  
+  return(df)
+}
+
+gene_df <- assign_label_positions(gene_df)
+
+# Get chromosome length
+chr_length <- max(gene_df$end) * 1.05
+
+# Create the plot
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/R")
+pdf("dunnart_Xchr_putative_escapees_location.pdf",
+    useDingbats = FALSE, width = 15, height = 6)
+print(ggplot(gene_df) +
+  # Chromosome backbone
+  geom_segment(aes(x = 0, xend = chr_length, y = 0, yend = 0), 
+               size = 3, color = "gray50") +
+  
+  # Gene positions as thick lines (colored by strand)
+  geom_segment(aes(x = start, xend = end, y = 0, yend = 0, color = strand), 
+               size = 6, alpha = 0.8) +
+  
+  # Lines connecting genes to labels
+  geom_segment(aes(x = midpoint, xend = midpoint, 
+                   y = 0, yend = label_y),
+               linetype = "dotted", size = 0.3, alpha = 0.5) +
+  
+  # Gene labels (above for +, below for -)
+  geom_text(aes(x = midpoint, y = label_y, label = gene),
+            angle = 45, 
+            hjust = ifelse(gene_df$strand == "+", 0, 1),
+            vjust = ifelse(gene_df$strand == "+", 0, 1),
+            size = 3) +
+  
+  scale_color_manual(values = c("+" = "#E63946", "-" = "#1D3557"),
+                     name = "Strand") +
+  scale_x_continuous(labels = scales::comma, 
+                     breaks = seq(0, chr_length, by = 10e6),
+                     limits = c(0, chr_length)) +
+  
+  labs(x = "Position on X chromosome (bp)",
+       y = "",
+       title = "Gene Distribution on X Chromosome",
+       subtitle = paste(length(gene_df$gene), "genes with low allelic imbalance")) +
+  
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(face = "bold")
+  ) +
+  ylim(-2, 2) +
+  
+  # Add strand labels
+  annotate("text", x = 0, y = 1.7, label = "+ strand", 
+           hjust = 0, size = 3, fontface = "italic") +
+  annotate("text", x = 0, y = -1.7, label = "- strand", 
+           hjust = 0, size = 3, fontface = "italic"))
+dev.off()
+```
+
+       
