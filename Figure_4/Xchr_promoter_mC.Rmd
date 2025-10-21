@@ -1,0 +1,226 @@
+###---import Female total, Female Hap1, Female Hap2 and Male X chr mC data
+```{r}
+region <- GRanges(
+  seqnames = "h1tg000013l",
+  ranges = IRanges(start = 41454965, end = 94468682),
+  strand = "*"  # Use "*" if strand is unknown, "+" for plus, "-" for minus
+)
+
+f_mc <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/Dunnart_female.dunnart-male-hybrid_DM4hap1_hichap2.minimod.modfreqs_combined.h1tg000013l.mCG.bedGraph")
+
+f_hap1_mc <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/modfreqs_hap1.formatted.bed")
+f_hap1_mc$score <-  f_hap1_mc$name
+f_hap1_mc$score <- as.numeric(f_hap1_mc$score)
+export(f_hap1_mc, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/modfreqs_hap1.formatted.bedGraph")
+
+f_hap2_mc <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/modfreqs_hap2.formatted.bed")
+f_hap2_mc$score <-  f_hap2_mc$name
+f_hap2_mc$score <- as.numeric(f_hap2_mc$score)
+export(f_hap2_mc, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/modfreqs_hap2.formatted.bedGraph")
+
+
+#male
+m_mc <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/male/Dunnart_male.dunnart-male-hybrid_DM4hap1_hichap2.minimod.modfreqs_combined.bed")
+m_mc <- as.data.frame(m_mc)
+m_mc_gr <- GRanges(seqnames=m_mc$V1, ranges=IRanges(start=m_mc$V2, width=2), strand=m_mc$V4, score=m_mc$V7)
+m_mc_gr <- unique(m_mc_gr)
+export(m_mc_gr, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/male/Dunnart_male.dunnart-male-hybrid_DM4hap1_hichap2.minimod.modfreqs_combined.bedGraph")
+m_mc_x <- subsetByOverlaps(m_mc_gr, region)
+```
+
+```{r}
+bt <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/ONT_mC_liver/source_data/dunnart_Xchr_hap_mC.rds")
+tss <- resize(genes_gr,1, fix="start")
+pro <- promoters(tss, upstream = 5000, downstream = 5000)
+
+region <- GRanges(
+  seqnames = "h1tg000013l",
+  ranges = IRanges(start = 41454965, end = 94468682),
+  strand = "*"  # Use "*" if strand is unknown, "+" for plus, "-" for minus
+)
+
+pro_reg <- subsetByOverlaps(pro, region)
+
+#f_mc; f_hap1_mc; f_hap2_mc; m_mc_gr
+
+library(data.table)
+library(rtracklayer)
+
+# Fix the inverted coordinates in f_hap1_mc
+start_vals <- start(f_hap1_mc)
+end_vals <- end(f_hap1_mc)
+
+# Swap start and end so that start <= end
+start(f_hap1_mc) <- pmin(start_vals, end_vals)
+end(f_hap1_mc) <- pmax(start_vals, end_vals)
+
+###
+# Fix the inverted coordinates in f_hap2_mc
+start_vals <- start(f_hap2_mc)
+end_vals <- end(f_hap2_mc)
+
+# Swap start and end so that start <= end
+start(f_hap2_mc) <- pmin(start_vals, end_vals)
+end(f_hap2_mc) <- pmax(start_vals, end_vals)
+
+f_hap1_mc_reg <- subsetByOverlaps(f_hap1_mc, region)
+f_hap2_mc_reg <- subsetByOverlaps(f_hap2_mc, region)
+```
+
+
+```{r}
+# Calculate methylation profiles manually 
+library(GenomicRanges)
+
+calculate_meth_profile <- function(meth_data, promoters, nbins = 41) {
+  # Create bins for each promoter
+  bin_width <- width(promoters) / nbins
+  
+  profiles <- matrix(NA, nrow = length(promoters), ncol = nbins)
+  
+  for(i in 1:length(promoters)) {
+    prom <- promoters[i]
+    
+    # Create bins within this promoter
+    bin_starts <- start(prom) + (0:(nbins-1)) * bin_width[i]
+    bin_ends <- bin_starts + bin_width[i] - 1
+    
+    bins <- GRanges(seqnames = seqnames(prom),
+                   ranges = IRanges(start = bin_starts, end = bin_ends),
+                   strand = strand(prom))
+    
+    # Find overlaps and calculate mean methylation per bin
+    for(j in 1:nbins) {
+      overlaps <- findOverlaps(bins[j], meth_data)
+      if(length(overlaps) > 0) {
+        meth_values <- meth_data$score[subjectHits(overlaps)]
+        profiles[i, j] <- mean(meth_values, na.rm = TRUE)
+      }
+    }
+  }
+  
+  return(profiles)
+}
+
+# Calculate profiles manually
+hap1_profile <- calculate_meth_profile(f_hap1_mc_reg, windows, 41)
+hap2_profile <- calculate_meth_profile(f_hap2_mc_reg, windows, 41)
+
+# Calculate means per bin
+av_hap1_manual <- apply(hap1_profile, 2, mean, na.rm = TRUE)
+av_hap2_manual <- apply(hap2_profile, 2, mean, na.rm = TRUE)
+
+summary(av_hap1_manual)  # Should be 0-1
+summary(av_hap2_manual)  # Should be 0-1
+
+av_df<-as.data.frame(av_hap1_manual)
+colnames(av_df)<-c("pro")
+av_df$bin<-c(1:41)
+av_df$bin<-as.factor(av_df$bin)
+
+av_melt<-melt(av_df, id.vars="bin", measure.vars=c("pro"), variable.name = "pattern")
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/Xchr_pro/")
+pdf("F_hap1_hap1_Xchr_promoters_5kb_manual.pdf", useDingbats=FALSE, width=10, height=10) 
+print(ggplot(av_melt, aes(x=bin, y=value, fill=pattern, group=pattern)) +
+    geom_line() + 
+  geom_point(shape=21, size=1.5, alpha=0.8) + 
+  scale_fill_manual(values=c("red")) +
+    ylim(0,1) +
+  ylab("Average methylation") +
+  xlab("Bin #") +
+  theme_bw()) #PrEC.av.meth.per.bin
+dev.off()
+
+
+
+av_df<-as.data.frame(av_hap2_manual)
+colnames(av_df)<-c("pro")
+av_df$bin<-c(1:41)
+av_df$bin<-as.factor(av_df$bin)
+
+av_melt<-melt(av_df, id.vars="bin", measure.vars=c("pro"), variable.name = "pattern")
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/Xchr_pro/")
+pdf("F_hap2_Xchr_promoters_5kb_manual.pdf", useDingbats=FALSE, width=10, height=10) 
+print(ggplot(av_melt, aes(x=bin, y=value, fill=pattern, group=pattern)) +
+    geom_line() + 
+  geom_point(shape=21, size=1.5, alpha=0.8) + 
+  scale_fill_manual(values=c("red")) +
+    ylim(0,1) +
+  ylab("Average methylation") +
+  xlab("Bin #") +
+  theme_bw()) #PrEC.av.meth.per.bin
+dev.off()
+```
+
+```{r}
+# Fix the inverted coordinates in f_hap1_mc
+start_vals <- start(f_mc)
+end_vals <- end(f_mc)
+
+# Swap start and end so that start <= end
+start(f_mc) <- pmin(start_vals, end_vals)
+end(f_mc) <- pmax(start_vals, end_vals)
+
+f_mc_reg <- subsetByOverlaps(f_mc, region)
+m_mc_reg <- subsetByOverlaps(m_mc_gr, region)
+
+
+# Calculate profiles manually
+f_profile <- calculate_meth_profile(f_mc_reg, windows, 41)
+m_profile <- calculate_meth_profile(m_mc_reg, windows, 41)
+
+# Calculate means per bin
+av_f_manual <- apply(f_profile, 2, mean, na.rm = TRUE)
+av_m_manual <- apply(m_profile, 2, mean, na.rm = TRUE)
+
+summary(av_f_manual)  # Should be 0-1
+summary(av_m_manual)  # Should be 0-1
+
+av_df<-as.data.frame(av_f_manual)
+colnames(av_df)<-c("pro")
+av_df$bin<-c(1:41)
+av_df$bin<-as.factor(av_df$bin)
+
+av_melt<-melt(av_df, id.vars="bin", measure.vars=c("pro"), variable.name = "pattern")
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/Xchr_pro/")
+pdf("F_Xchr_promoters_5kb_manual.pdf", useDingbats=FALSE, width=10, height=10) 
+print(ggplot(av_melt, aes(x=bin, y=value, fill=pattern, group=pattern)) +
+    geom_line() + 
+  geom_point(shape=21, size=1.5, alpha=0.8) + 
+  scale_fill_manual(values=c("red")) +
+    ylim(0,1) +
+  ylab("Average methylation") +
+  xlab("Bin #") +
+  theme_bw()) #PrEC.av.meth.per.bin
+dev.off()
+
+av_df<-as.data.frame(av_m_manual)
+colnames(av_df)<-c("pro")
+av_df$bin<-c(1:41)
+av_df$bin<-as.factor(av_df$bin)
+
+av_melt<-melt(av_df, id.vars="bin", measure.vars=c("pro"), variable.name = "pattern")
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/Xchr_pro/")
+pdf("M_Xchr_promoters_5kb_manual.pdf", useDingbats=FALSE, width=10, height=10) 
+print(ggplot(av_melt, aes(x=bin, y=value, fill=pattern, group=pattern)) +
+    geom_line() + 
+  geom_point(shape=21, size=1.5, alpha=0.8) + 
+  scale_fill_manual(values=c("red")) +
+    ylim(0,1) +
+  ylab("Average methylation") +
+  xlab("Bin #") +
+  theme_bw()) #PrEC.av.meth.per.bin
+dev.off()
+```
+
+
+
+
+
+
+
+
