@@ -317,3 +317,574 @@ dev.off()
 
 ```
 
+
+###---calc E9te vs E9epi at gene bodies from scBS-seq data
+```{r}
+genes <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/GTF_liftoff_final_genome/dunnart_male_T2T_GENES.bed")
+genes <- as.data.frame(genes)
+genes_gr <- GRanges(seqnames = genes$V1, ranges=IRanges(start=genes$V2, end=genes$V3), strand=genes$V6, name=genes$V4)
+
+bigtable <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMRs_sperm_EPI_TE/bigtable/sperm_E9epi_E9te_bigtable.tsv")
+CpG <- c(bigtable, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bigtable)[,-c(1:5)]  
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub("\\.(C|cov)$", "", colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+
+
+genes_gr<-subsetByOverlaps(genes_gr, CpG, ignore.strand = FALSE) 
+av_meth <- mapply(function(a, b){overlapRatios(CpG, genes_gr, a, b, minCov=1)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+mcols(genes_gr) <- cbind(mcols(genes_gr), x)
+saveRDS(genes_gr, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gene_bodies_mincov3_mC_E9epi_E9te.rds")
+
+genes_df_scBS <- as.data.frame(genes_gr)
+```
+
+
+
+###---bulk EM-seq
+```{r}
+genes <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/GTF_liftoff_final_genome/dunnart_male_T2T_GENES.bed")
+genes <- as.data.frame(genes)
+genes_gr <- GRanges(seqnames = genes$V1, ranges=IRanges(start=genes$V2, end=genes$V3), strand=genes$V6, name=genes$V4)
+
+bt <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/mapping/bigtable/bigtable.tsv")
+bt <- as.data.frame(bt)
+bt$start <- as.numeric(as.character(bt$start))
+bt <- bt[complete.cases(bt$start),]
+cols_to_convert <- grep("\\.(C|cov)$", names(bt))
+bt[cols_to_convert] <- lapply(bt[cols_to_convert], as.numeric)
+bt <- bt[,c(1:2, 23:26, 15:18, 3:14, 19:22)]
+bt <- GRanges(seqnames = bt$chr, ranges = IRanges(start=bt$start, width = 2), strand = "*", bt[, c(3:ncol(bt))])
+CpG <- c(bt, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bt)[,-c(1:5)] 
+
+genes_gr<-subsetByOverlaps(genes_gr, CpG, ignore.strand = FALSE) 
+
+col<-seq(1, ncol(mcols(bt)), by=2)
+names <- sub('\\..*', '', colnames(mcols(bt))[col])
+col <- setNames(col, names)
+
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, genes_gr, a, b, minCov=1)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+mcols(genes_gr) <- cbind(mcols(genes_gr), x)
+saveRDS(genes_gr, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gene_bodies_mincov3_mC.rds")
+genes_gr <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gene_bodies_mincov3_mC.rds")
+
+genes_df_bulk <- as.data.frame(genes_gr)
+```
+
+#merge scBS and bulk data
+```{r}
+genes_df_all <- merge(genes_df_scBS, genes_df_bulk, by.x="name", by.y="name")
+genes_df_all <- genes_df_all[,c(1,16, 17, 18, 19, 7:8,20:ncol(genes_df_all))]
+saveRDS(genes_df_all, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gene_bodies_mincov3_mC_bulk_scBS.rds")
+```
+
+
+```{r}
+library(pheatmap)
+rownames(genes_df_all) <- genes_df_all$name
+
+expr_matrix <- as.matrix(genes_df_all[, -1])
+expr_matrix.na <- expr_matrix[complete.cases(expr_matrix),]
+
+pdf("gene_body_mC_hierarchical_with_gaps.pdf", useDingbats = FALSE, width = 5, height = 5)
+print(pheatmap(expr_matrix.na,
+         clustering_distance_rows = "euclidean",
+         clustering_method = "average",
+         gaps_col = c(2, 4, 6, 8, 10, 12),  # Add gaps between sample pairs
+         cluster_cols = FALSE,
+         scale = "none",
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(50),
+         fontsize_row = 6,
+         fontsize_col = 10,
+        treeheight_row = 30,  # Show dendrogram
+         treeheight_col = 0,
+         show_rownames = FALSE,
+         main = "Gene Body 5mC Dynamics",
+         border_color = NA))
+dev.off()
+
+png("gene_body_mC_hierarchical_with_gaps.png", width = 5, height = 5, units = "in",  res = 300) 
+print(pheatmap(expr_matrix.na,
+         clustering_distance_rows = "euclidean",
+         clustering_method = "average",
+         gaps_col = c(2, 4, 6, 8, 10, 12),  # Add gaps between sample pairs
+         cluster_cols = FALSE,
+         scale = "none",
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(50),
+         fontsize_row = 6,
+         fontsize_col = 10,
+        treeheight_row = 30,  # Show dendrogram
+         treeheight_col = 0,
+         show_rownames = FALSE,
+         main = "Gene Body 5mC Dynamics",
+         border_color = NA))
+dev.off()
+
+###---extract gene bodies that retain mC
+genes_gr_maint <- genes_df_scBS[which(genes_df_scBS$E9te_r1>=0.5),] #271
+genes_gr_hypo <- genes_df_scBS[which(genes_df_scBS$E9te_r1<0.5),] #22538
+
+write.table(unique(genes_gr_maint$name), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gene_bodies_retain_mC_E9te_GENE_NAME.txt", sep = "\t", quote= FALSE, row.names = FALSE, col.names = FALSE)
+
+dunnart_mouse <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Annotations/Dunnart_asm_12-2021_sm.protein.geneID__v__Mus_musculus.GRCm39.pep.all.tsv")
+dunnart_mouse <- as.data.frame(dunnart_mouse)
+
+
+genes_gr_maint_mouse <- merge(genes_gr_maint, dunnart_mouse, by.x="name", by.y="Dunnart_asm_12-2021_sm.protein.geneID")
+# Subset rows where the last column does NOT contain a comma
+filtered_genes <- genes_gr_maint_mouse[!grepl(",", genes_gr_maint_mouse$Mus_musculus.GRCm39.pep.all), ]
+
+# Remove version numbers from gene IDs in the last column
+filtered_genes$Mus_musculus.GRCm39.pep.all <- sub("\\..*$", "", filtered_genes$Mus_musculus.GRCm39.pep.all)
+
+write.table(unique(filtered_genes$Mus_musculus.GRCm39.pep.all), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gene_bodies_retain_mC_E9te_GENE_NAME_mouse.txt", sep = "\t", quote= FALSE, row.names = FALSE, col.names = FALSE)
+filtered_genes <- read.table("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gene_bodies_retain_mC_E9te_GENE_NAME_mouse.txt")
+filtered_genes <- filtered_genes$V1
+
+#background
+genes_gr_all_mouse <- merge(genes_df, dunnart_mouse, by.x="name", by.y="Dunnart_asm_12-2021_sm.protein.geneID")
+# Subset rows where the last column does NOT contain a comma
+filtered_genes_all <- genes_gr_all_mouse[!grepl(",", genes_gr_all_mouse$Mus_musculus.GRCm39.pep.all), ]
+
+# Remove version numbers from gene IDs in the last column
+filtered_genes_all$Mus_musculus.GRCm39.pep.all <- sub("\\..*$", "", filtered_genes_all$Mus_musculus.GRCm39.pep.all)
+
+write.table(unique(filtered_genes_all$Mus_musculus.GRCm39.pep.all), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies//gene_bodies_all_GENE_NAME_mouse.txt", sep = "\t", quote= FALSE, row.names = FALSE, col.names = FALSE)
+```
+
+```{r}
+genes_gr_hypo <- genes_df_scBS[which(genes_df_scBS$E9te_r1<0.5),] #22538
+
+genes_gr_hypo_mouse <- merge(genes_gr_hypo, dunnart_mouse, by.x="name", by.y="Dunnart_asm_12-2021_sm.protein.geneID")
+# Subset rows where the last column does NOT contain a comma
+filtered_genes_hypo <- genes_gr_hypo_mouse[!grepl(",", genes_gr_hypo_mouse$Mus_musculus.GRCm39.pep.all), ]
+
+# Remove version numbers from gene IDs in the last column
+filtered_genes_hypo$Mus_musculus.GRCm39.pep.all <- sub("\\..*$", "", filtered_genes_hypo$Mus_musculus.GRCm39.pep.all)
+
+write.table(unique(filtered_genes_hypo$Mus_musculus.GRCm39.pep.all), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gene_bodies_lose_mC_E9te_GENE_NAME_mouse.txt", sep = "\t", quote= FALSE, row.names = FALSE, col.names = FALSE)
+
+#filtered_genes_hypo <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gene_bodies_lose_mC_E9te_GENE_NAME_mouse.txt")
+#filtered_genes_hypo <- as.data.frame(filtered_genes_hypo)
+
+```
+
+
+```{r}
+go <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gprofiler_gene_bodies_retain_mC_E9te_GENE_NAME_mouse.csv")
+go <- as.data.frame(go)
+go <- go[,c(1:10)]
+
+go_bp <- go[which(go$source == "GO:BP"),]
+
+go_bp <- go_bp[which(go_bp$highlighted=="TRUE"),]
+go_bp$term_name <- factor(go_bp$term_name, levels = go_bp$term_name[order(go_bp$negative_log10_of_adjusted_p_value)])
+
+go_bp$term_size_div_domain_size <- go_bp$term_size / go_bp$effective_domain_size *100
+go_bp$intersection_size_div_query_size <- go_bp$intersection_size / go_bp$query_size *100
+go_bp$FoldEnrichment <- go_bp$intersection_size_div_query_size / go_bp$term_size_div_domain_size
+
+write.table(go_bp, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/R/Fig_gene_bodies/gprofiler/dunnart_gene_bodies_retain_mC_GO_BP.txt", quote = FALSE, sep="\t")
+
+
+library(dplyr)
+
+# Add a column with asterisks for significant terms
+go_bp <- go_bp %>%
+  mutate(label = ifelse(adjusted_p_value < 0.05, "*", ""))
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_GO_BP.pdf", useDingbats=FALSE, width=8, height=3) 
+print(ggplot(data = go_bp, aes(x = term_name, y = negative_log10_of_adjusted_p_value)) +
+    geom_bar(stat = "identity", width = 0.4) +
+    geom_hline(yintercept = 1, color = "red", linetype = "dashed") +  # red line at -log10(0.1)
+    geom_text(aes(label = label), hjust = -0.2, size = 8) +           # asterisks slightly outside the bar
+    coord_flip() +
+    theme_minimal() +
+    labs(x = "GO Biological Process", y = "-log10(adjusted p-value)"))
+dev.off()
+
+library(ggplot2)
+library(ggpubr)
+library(dplyr)
+
+go_bp <- go_bp %>%
+  mutate(term_name_wrapped = stringr::str_wrap(term_name, width = 30))
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_GO_BP_balloon_plot.pdf", useDingbats=FALSE, width=8, height=3) 
+print(ggplot(go_bp, aes(x = FoldEnrichment,
+                  y = reorder(term_name_wrapped, FoldEnrichment),
+                  size = intersection_size_div_query_size,
+                  color = adjusted_p_value)) +
+  geom_point(alpha = 0.8) +
+  scale_size_continuous(range = c(3, 10)) +
+  scale_color_viridis_c(option = "plasma", direction = -1) +
+  labs(
+    x = "Fold Enrichment",
+    y = "GO Biological Process",
+    size = "Percentage of genes in GO term",
+    color = "-log10(adj. p-value)",
+    title = "GO:BP Enrichment Balloon Plot"
+  ) +
+  xlim(0, 4) +
+  theme_pubr() +
+  theme(
+    legend.position = "right",
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ))
+dev.off()
+
+
+```
+
+#HP
+```{r}
+go <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/gprofiler_gene_bodies_retain_mC_E9te_GENE_NAME_mouse.csv")
+go <- as.data.frame(go)
+go <- go[,c(1:10)]
+
+go_hp <- go[which(go$source == "HP"),]
+
+##go_hp <- go_hp[which(go_hp$highlighted=="TRUE"),]
+go_hp$term_name <- factor(go_hp$term_name, levels = go_hp$term_name[order(go_hp$negative_log10_of_adjusted_p_value)])
+
+go_hp$term_size_div_domain_size <- go_hp$term_size / go_hp$effective_domain_size *100
+go_hp$intersection_size_div_query_size <- go_hp$intersection_size / go_hp$query_size *100
+go_hp$FoldEnrichment <- go_hp$intersection_size_div_query_size / go_hp$term_size_div_domain_size
+
+write.table(go_hp, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies//dunnart_gene_bodies_retain_mC_GO_HP.txt", quote = FALSE, sep="\t")
+
+
+library(dplyr)
+
+# Add a column with asterisks for significant terms
+go_hp <- go_hp %>%
+  mutate(label = ifelse(adjusted_p_value < 0.05, "*", ""))
+go_hp <- go_hp[which(go_hp$term_size >=500),]
+#go_hp <- go_hp[order(-go_hp$adjusted_p_value),]
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_GO_HP.pdf", useDingbats=FALSE, width=8, height=4) 
+print(ggplot(data = go_hp, aes(x = term_name, y = negative_log10_of_adjusted_p_value)) +
+    geom_bar(stat = "identity", width = 0.4) +
+    geom_hline(yintercept = 1, color = "red", linetype = "dashed") +
+    geom_text(aes(label = label), hjust = -0.2, size = 8) +          
+    coord_flip() +
+    theme_minimal() +
+    labs(x = "GO Human Phenotype", y = "-log10(adjusted p-value)"))
+dev.off()
+
+
+go_hp <- go_hp %>%
+  mutate(term_name_wrapped = stringr::str_wrap(term_name, width = 30))
+
+# Create the balloon plot
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_GO_HP_balloon_plot.pdf", useDingbats=FALSE, width=8, height=3) 
+print(ggplot(go_hp, aes(x = FoldEnrichment,
+                  y = reorder(term_name_wrapped, FoldEnrichment),
+                  size = intersection_size_div_query_size,
+                  color = adjusted_p_value)) +
+  geom_point(alpha = 0.8) +
+  scale_size_continuous(range = c(3, 10)) +
+  scale_color_viridis_c(option = "plasma", direction = -1) +
+  labs(
+    x = "Fold Enrichment",
+    y = "GO Human Phenotype",
+    size = "Percentage of genes in GO term",
+    color = "-log10(adj. p-value)",
+    title = "GO:HP Enrichment Balloon Plot"
+  ) +
+  xlim(0,3) +
+  theme_pubr() +
+  theme(
+    legend.position = "right",
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ))
+dev.off()
+
+```
+
+
+###---expression of hypo genes in the mouse embryo
+#https://tome.gs.washington.edu/
+```{r}
+e5.25 <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/scRNAseq_mouse_TOME_WASHU/seurat_object_E5.25.rds")
+
+
+library(Seurat)
+library(ggplot2)
+
+# First, check if UMAP already exists
+if("umap" %in% names(e5.25@reductions)) {
+  # UMAP already computed, just plot it
+  DimPlot(e5.25, reduction = "umap", pt.size = 1) + 
+    ggtitle("e5.25 Mouse Embryo - UMAP")
+} else {
+  # Need to process the data first
+  
+  # 1. Normalize the data
+  e5.25 <- NormalizeData(e5.25)
+  
+  # 2. Find variable features
+  e5.25 <- FindVariableFeatures(e5.25, selection.method = "vst", nfeatures = 2000)
+  
+  # 3. Scale the data
+  e5.25 <- ScaleData(e5.25)
+  
+  # 4. Run PCA
+  e5.25 <- RunPCA(e5.25, features = VariableFeatures(object = e5.25))
+  
+  # 5. Find neighbors
+  e5.25 <- FindNeighbors(e5.25, dims = 1:30)
+  
+  # 6. Find clusters
+  e5.25 <- FindClusters(e5.25, resolution = 0.5)
+  
+  # 7. Run UMAP
+  e5.25 <- RunUMAP(e5.25, dims = 1:30)
+  
+  # 8. Plot UMAP
+  DimPlot(e5.25, reduction = "umap", pt.size = 1) + 
+    ggtitle("e5.25 Mouse Embryo - UMAP")
+}
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_E9te_expr_in_mouse_e5.25_UMAP.pdf", useDingbats=FALSE, width=5, height=5) 
+print(DimPlot(e5.25, reduction = "umap", pt.size = 1) + 
+    ggtitle("e5.25 Mouse Embryo - UMAP"))
+dev.off()
+```
+
+
+```{r}
+colnames(e5.25@meta.data)
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_E9te_expr_in_mouse_e5.25_UMAP_cell_type.pdf", useDingbats=FALSE, width=7, height=5) 
+print(DimPlot(e5.25, reduction = "umap", group.by = "cell_type", 
+        label = TRUE, pt.size = 1, label.size = 3) + 
+  ggtitle("e5.25 - Cell Types"))
+dev.off()
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_E9te_expr_in_mouse_e5.25_UMAP_cell_type_v2.pdf", 
+    useDingbats = FALSE, width = 7, height = 5)
+print(DimPlot(e5.25, 
+          reduction = "umap", 
+          group.by = "cell_type",
+          label = TRUE, 
+          pt.size = 2.5,  # Increased dot size
+          label.size = 3,
+          repel = TRUE,
+          cols = c("#E64B35", "#4DBBD5", "#00A087", "#3C5488", 
+                   "#F39B7F", "#8491B4", "#91D1C2", "#DC0000",
+                   "#7E6148", "#B09C85", "#FF7F00", "#FFDB00",
+                   "#00FF00", "#0000FF", "#FF00FF", "#00FFFF")) +  # Professional color palette
+    labs(title = "E5.25 Mouse Embryo - Cell Types",
+         x = "UMAP 1", 
+         y = "UMAP 2") +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+          legend.title = element_text(face = "bold")))
+dev.off()
+
+
+# Feature plots for marker genes
+#TE markers
+FeaturePlot(e5.25, features = c("ENSMUSG00000005836"), #gata6
+            reduction = "umap", ncol = 2)
+
+FeaturePlot(e5.25, features = c("ENSMUSG00000027186"), #elf5
+            reduction = "umap", ncol = 2)
+
+
+# ICM markers
+FeaturePlot(e5.25, features = c("ENSMUSG00000012396"), #nanog
+            reduction = "umap", ncol = 2)
+
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_E9te_expr_in_mouse_e5.25_UMAP_Elf5.pdf", useDingbats=FALSE, width=8, height=5)
+print(FeaturePlot(e5.25, features = c("ENSMUSG00000027186"), #elf5
+            reduction = "umap", ncol = 2))
+dev.off()
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_E9te_expr_in_mouse_e5.25_UMAP_Nanog.pdf", useDingbats=FALSE, width=8, height=5)
+print(FeaturePlot(e5.25, features = c("ENSMUSG00000012396"), #nanog
+            reduction = "umap", ncol = 2))
+dev.off()
+
+```
+
+```{r}
+sce_filt <- e5.25
+all <- rownames(sce_filt)
+gene_list <- unique(filtered_genes)
+features <- all[all %in% gene_list]
+cell_typeA_marker_gene_list <- list(c(features))
+
+# Calculate module score
+e5.25 <- AddModuleScore(object = e5.25, 
+                        features = cell_typeA_marker_gene_list, 
+                        name = "cell_typeA_score")
+
+# the distribution of raw module scores
+summary(e5.25$cell_typeA_score1)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#0.05242 0.12589 0.14797 0.14616 0.16525 0.22027
+
+FeaturePlot(object = e5.25, 
+            features = "cell_typeA_score1",  
+            order = TRUE, 
+            pt.size = 4, 
+) & scale_color_gradientn(
+  colours = c("#3B9AB2", "#78B7C5", "#E1AF00", "#F21A00", "darkred"),
+  limits = c(0.05, 0.25)  # set to min/max of your z-scores
+)
+
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_E9te_expr_in_mouse_e5.25_UMAP_module_score.pdf", useDingbats = FALSE, width = 6, height = 5)
+print(FeaturePlot(
+  object = e5.25,
+  features = "cell_typeA_score1",
+  reduction = "umap",
+  order = TRUE,
+  pt.size = 4
+) + 
+  scale_color_gradientn(
+    colours = c("#3B9AB2", "#78B7C5", "#E1AF00", "#F21A00", "darkred"),
+    limits = c(0.05, 0.25)
+  ) +
+  labs(title = "E5.25 Mouse Embryo - Module Score",
+       x = "UMAP 1", 
+       y = "UMAP 2") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.title = element_text(face = "bold")))
+dev.off()
+
+# Violin plot by cell type
+pdf("dunnart_gene_bodies_retain_mC_E9te_expr_in_mouse_e5.25_violin_module_score.pdf", 
+    useDingbats = FALSE, 
+    width = 8, 
+    height = 5)
+print(VlnPlot(
+  object = e5.25,
+  features = "cell_typeA_score1",
+  group.by = "cell_type",
+  pt.size = 0,
+  cols = c("#E64B35", "#4DBBD5", "#00A087", "#3C5488", 
+           "#F39B7F", "#8491B4", "#91D1C2", "#DC0000",
+           "#7E6148", "#B09C85", "#FF7F00", "#FFDB00")
+) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Module Score by Cell Type",
+       y = "Module Score"))
+dev.off()
+```
+
+###---Methylated vs unmethylated gene bodies - expression in the E5.25 mouse embryo
+```{r}
+# Get gene lists
+all_genes <- rownames(e5.25)
+methylated_genes <- all_genes[all_genes %in% unique(filtered_genes)]
+unmethylated_genes <- setdiff(all_genes, methylated_genes)
+
+print(paste("Methylated:", length(methylated_genes), "Unmethylated:", length(unmethylated_genes)))
+
+# Get expression data
+expr_matrix <- GetAssayData(e5.25, slot = "data")
+methylated_expr <- rowMeans(expr_matrix[methylated_genes, ])
+unmethylated_expr <- rowMeans(expr_matrix[unmethylated_genes, ])
+
+# Statistical test
+wilcox_result <- wilcox.test(methylated_expr, unmethylated_expr)
+print(wilcox_result)
+
+# Prepare plot data
+plot_data <- data.frame(
+  Expression = c(methylated_expr, unmethylated_expr),
+  Group = factor(c(rep("Methylated", length(methylated_expr)),
+                   rep("Unmethylated", length(unmethylated_expr))))
+)
+
+# Create plots
+library(ggplot2)
+library(ggpubr)
+library(patchwork)
+
+# Violin plot
+p1 <- ggplot(plot_data, aes(x = Group, y = Expression, fill = Group)) +
+  geom_violin(alpha = 0.8) +
+  geom_boxplot(width = 0.2, fill = "white", alpha = 0.8) +
+  scale_fill_manual(values = c("Methylated" = "#F21A00", "Unmethylated" = "#3B9AB2")) +
+  labs(title = "Expression: Methylated vs Unmethylated",
+       y = "Mean Expression",
+       x = "") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold", hjust = 0.5)) +
+  stat_compare_means(method = "wilcox.test", label.y = max(plot_data$Expression) * 1.1)
+
+# Density plot
+p2 <- ggplot(plot_data, aes(x = Expression, fill = Group)) +
+  geom_density(alpha = 0.7) +
+  scale_fill_manual(values = c("Methylated" = "#F21A00", "Unmethylated" = "#3B9AB2")) +
+  labs(title = "Expression Distribution",
+       x = "Mean Expression",
+       y = "Density") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        legend.position = "top")
+
+# Percentage expressed
+expr_threshold <- 0.1
+methylated_pct <- sum(methylated_expr > expr_threshold) / length(methylated_expr) * 100
+unmethylated_pct <- sum(unmethylated_expr > expr_threshold) / length(unmethylated_expr) * 100
+
+expr_pct <- data.frame(
+  Group = c("Methylated", "Unmethylated"),
+  Percentage = c(methylated_pct, unmethylated_pct)
+)
+
+p3 <- ggplot(expr_pct, aes(x = Group, y = Percentage, fill = Group)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  scale_fill_manual(values = c("Methylated" = "#F21A00", "Unmethylated" = "#3B9AB2")) +
+  labs(title = "% Expressed (>0.1)",
+       y = "Percentage",
+       x = "") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold", hjust = 0.5)) +
+  ylim(0, 100) +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), 
+            vjust = -0.5, size = 4)
+
+# Save combined plot
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+
+pdf("methylated_vs_unmethylated_expression.pdf", width = 12, height = 4)
+print(p1 | p2 | p3)
+dev.off()
+
+```
+
+
+
+
+
