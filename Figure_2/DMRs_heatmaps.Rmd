@@ -1,0 +1,741 @@
+---
+title: "dunnart_scBS_DMRs_final"
+output: html_document
+date: '2025-09-23'
+author: 'Ksenia Skvortsova'
+---
+
+
+```{r}
+library(data.table)
+library(rtracklayer)
+
+overlapSums <- function(x, y, z, na.rm=FALSE) {
+  stopifnot(class(x)=="GRanges")
+  stopifnot(class(y)=="GRanges")
+  stopifnot(class(z)=="numeric" | class(z)=="integer")
+  stopifnot(length(x)==length(z))
+  ov <- as.matrix(findOverlaps(y, x))
+  ovSums <- rep(as.numeric(NA), length(y))
+  ovSums[unique(ov[,1])] <- viewSums(Views(z[ov[,2]], ranges(Rle(ov[,1]))), na.rm=na.rm)
+  ovSums
+}
+
+
+overlapRatios <- function(x, y, C, cov, minCov, na.rm=FALSE) {
+  C.sum <- overlapSums(x, y, values(x)[[C]], na.rm=na.rm)
+  cov.sum <- overlapSums(x, y, values(x)[[cov]], na.rm=na.rm)
+  ov_all <- as.data.frame(findOverlaps(y, x)) 
+  number_of_CpGs <- rle(ov_all[,1])$lengths #--- total number of CpGs per region
+  CpG_ov_regions <- x[ov_all$subjectHits] #--- coverage of CpGs overlapping regions
+  ov_all$cov <- as.numeric(values(CpG_ov_regions)[[cov]])
+  ov_all$cov_binary<-as.numeric(ifelse(ov_all$cov>=minCov, 1, 0))
+  number_of_CpGs_minCov <- as.numeric(tapply(ov_all$cov_binary, ov_all$queryHits, FUN=sum))
+  CpGs_covered <- as.numeric(number_of_CpGs_minCov) / as.numeric(number_of_CpGs)
+  rat <- as.data.frame(C.sum/cov.sum)
+  rat_cov<-cbind(rat, CpGs_covered)
+  colnames(rat_cov) <- c("rat", "CpGs_covered")
+  rat_cov$rat[rat_cov$CpGs_covered < 0.5] <- NA
+  rat_cov[,1]
+}
+
+
+overlapRatios <- function(x, y, C, cov, minCov, na.rm=FALSE) {
+  # Find overlaps
+  ov_all <- as.data.frame(findOverlaps(y, x))
+  result <- rep(NA, length(y))
+  if(nrow(ov_all) == 0) return(result)
+  ov_all$C <- values(x)[[C]][ov_all$subjectHits]
+  ov_all$cov <- values(x)[[cov]][ov_all$subjectHits]
+  ov_all$ratio <- ifelse(ov_all$cov >= minCov, 
+                         ov_all$C / ov_all$cov, 
+                         NA)
+  n_total <- table(ov_all$queryHits)
+  n_valid <- tapply(ov_all$cov >= minCov, ov_all$queryHits, sum)
+  coverage_rate <- n_valid / n_total[names(n_valid)]
+  mean_meth <- tapply(ov_all$ratio, ov_all$queryHits, 
+                      function(x) mean(x, na.rm=TRUE))
+  regions_with_data <- as.numeric(names(mean_meth))
+  valid_regions <- regions_with_data[coverage_rate >= 0.5]
+  result[valid_regions] <- mean_meth[as.character(valid_regions)]
+  return(result)
+}
+
+```
+
+###---DMRs
+```{r}
+hyperE_hypoL <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/dunnart_d12_vs_d9.DMRs_hypo0.1.bed") #309
+summary(width(hyperE_hypoL))
+
+interDMR <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/DMRs/Dunnart_DMRs_20-2-25/merged/inter_hyperEarly-hypoLate_DMRs_BINNED_1500BP.bed")
+
+
+mcols(hyperE_hypoL) <- NULL
+hyperE_hypoL$name <- c(1:length(hyperE_hypoL))
+export(hyperE_hypoL, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/DMRs/Dunnart_DMRs_20-2-25/merged/hyperEarly-hypoLate_DMRs_NUMBER.bed")
+
+mcols(interDMR) <- NULL
+interDMR$name <- c((length(hyperE_hypoL)+1) : (length(hyperE_hypoL)+length(interDMR)))
+background <- c(hyperE_hypoL, interDMR)
+export(background, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/DMRs/Dunnart_DMRs_20-2-25/merged/BACKGROUND_inter_hyperEarly-hypoLate_DMRs_NUMBER_BINNED_1500BP.bed")
+
+
+#
+hypoE_hyperL <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/dunnart_d9_vs_sperm.DMRs_hypo0.1.bed") #267686
+
+summary(width(hypoE_hyperL))  
+
+interDMR <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/DMRs/Dunnart_DMRs_20-2-25/merged/inter_hypoEarly-hyperLate_DMRs_BINNED_1500BP.bed")
+total_length2 <- sum(width(interDMR)) #2629506012
+
+mcols(hypoE_hyperL) <- NULL
+hypoE_hyperL$name <- c(1:length(hypoE_hyperL))
+export(hypoE_hyperL, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/DMRs/Dunnart_DMRs_20-2-25/merged/hypoEarly-hyperLate_DMRs_NUMBER.bed")
+
+mcols(interDMR) <- NULL
+interDMR$name <- c((length(hypoE_hyperL)+1) : (length(hypoE_hyperL)+length(interDMR)))
+background <- c(hypoE_hyperL, interDMR)
+export(background, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/DMRs/Dunnart_DMRs_20-2-25/merged/BACKGROUND_inter_hypoEarly-hyperLate_DMRs_NUMBER_BINNED_1500BP.bed")
+```
+
+```{r}
+df <- data.frame(
+  DMR_type = c("hypoE_hyperL", "hyperE_hypoL"),
+  Number = c(length(hypoE_hyperL), length(hyperE_hypoL))
+)
+
+library(ggplot2)
+library(ggforce)
+library(ggrounded)
+
+# Create horizontal bar plot
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/figures/")
+pdf("DMRs_count_v1.pdf", useDingbats=FALSE, width=8, height=4)
+print(ggplot(df, aes(x = DMR_type, y = Number, fill = DMR_type)) +
+  geom_col_rounded(width = 0.2, radius = unit(0.05, "npc")) +
+  coord_flip() +
+  scale_fill_manual(values = c("hypoE_hyperL" = "#E74C3C", "hyperE_hypoL" = "#3498DB")) +
+  geom_text(aes(label = format(Number, big.mark = ",")), hjust = -0.1, size = 4) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        panel.grid.major.y = element_blank()) +
+  labs(title = "Number of DMRs", x = "DMR Type", y = "Count"))
+dev.off()
+```
+
+```{r}
+hypoE_hyperL<-subsetByOverlaps(hypoE_hyperL, CpG, ignore.strand = FALSE) 
+
+col<-seq(1, ncol(mcols(bt)), by=2)
+names <- sub('\\..*', '', colnames(mcols(bt))[col])
+col <- setNames(col, names)
+
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, hypoE_hyperL, a, b, minCov=3)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+saveRDS(x, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/figures/hypoE_hyperL_mincov3_mC.rds")
+write.csv(x, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/figures/hypoE_hyperL_mincov3_mC.csv")
+x <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/figures/hypoE_hyperL_mincov3_mC.rds")
+
+
+m <- melt(x)
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/figures/")
+pdf("hypoE_hyperL_mC_mincov3_violin.pdf", useDingbats=FALSE, width=16, height=6)
+print(ggplot(m, aes(x = variable, y = value, fill = variable)) +
+  geom_violin(trim=FALSE) +
+  geom_boxplot(width=0.1) +  # Optional: remove outliers for cleaner plot
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = "mCG/CG", x = "embryonic day", title = "gene body 5mC"))
+dev.off()
+
+```
+
+
+```{r}
+library(pheatmap)
+library(RColorBrewer)
+library(dplyr)
+
+complete_rows <- complete.cases(x)
+x_complete <- x[complete_rows, ] #199254
+
+cat(sprintf("Using %d complete rows (from %d total, removed %d with missing values)\n", 
+            nrow(x_complete), nrow(x), sum(!complete_rows)))
+
+# Calculate average methylation across all rows
+x_averaged <- colMeans(x_complete)
+
+# Convert to matrix format for heatmap (1 row)
+x_averaged_matrix <- matrix(x_averaged, nrow = 1)
+colnames(x_averaged_matrix) <- names(x_averaged)
+rownames(x_averaged_matrix) <- "Average Methylation"
+
+# Reorder columns
+col_order <- c(
+  grep("sperm", colnames(x_averaged_matrix)),
+  grep("d9", colnames(x_averaged_matrix)),
+  grep("d10", colnames(x_averaged_matrix)),
+  grep("d12", colnames(x_averaged_matrix)),
+  grep("d13", colnames(x_averaged_matrix)),
+  grep("liver", colnames(x_averaged_matrix))
+)
+
+x_averaged_reordered <- x_averaged_matrix[, col_order, drop = FALSE]
+
+# Create heatmap with pheatmap
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/figures/")
+pdf("hypoE_hyperL_mC_averaged_heatmap_v1.pdf", useDingbats=FALSE, width=15, height=2)
+pheatmap(
+    x_averaged_reordered,
+    cluster_rows = FALSE,
+    cluster_cols = FALSE,
+    scale = "none",
+    color = colorRampPalette(c("blue", "white", "red"))(100),
+    breaks = seq(0, 1, length.out = 101),
+    cellwidth = 25,
+    cellheight = 40,
+    fontsize = 12,
+    fontsize_row = 11,
+    fontsize_col = 10,
+    main = paste0("hypoE_hyperL_DMRs - Average Methylation (n=", nrow(x_complete), " regions)"),
+    border_color = "white",
+    show_colnames = TRUE,
+    angle_col = "45",
+    gaps_col = c(2, 4, 6, 8, 10),
+    display_numbers = TRUE,
+    number_format = "%.3f",
+    fontsize_number = 8
+)
+dev.off()
+
+# v2 - Using ComplexHeatmap
+library(ComplexHeatmap)
+library(circlize)
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/figures/")
+pdf("hypoE_hypoL_mC_averaged_heatmap_v2.pdf", useDingbats=FALSE, width=15, height=2)
+print(Heatmap(
+    x_averaged_reordered,
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    col = colorRampPalette(c("blue", "white", "red"))(100),
+
+    width = ncol(x_averaged_reordered) * unit(25, "points"),
+    height = unit(40, "points"),
+
+    column_split = rep(1:6, c(2, 2, 2, 2, 2, ncol(x_averaged_reordered)-10)),
+    column_gap = unit(3, "mm"),
+    
+    rect_gp = gpar(type = "none"),
+    cell_fun = function(j, i, x, y, width, height, fill) {
+        # Draw regular rectangle (square edges)
+        grid.rect(x = x, y = y, width = width, height = height,
+                  gp = gpar(fill = fill, col = "white", lwd = 1))
+        # Add text with methylation values
+        grid.text(sprintf("%.3f", x_averaged_reordered[i, j]), 
+                  x = x, y = y, 
+                  gp = gpar(fontsize = 8, col = "black"))
+    },
+    
+    column_title = paste0("hypoE_hyperL_DMRs - Average Methylation (n=", nrow(x_complete), " regions)"),
+    row_labels = "Average",
+    show_column_names = TRUE,
+    column_names_rot = 45,
+    
+    heatmap_legend_param = list(
+        title = "Methylation",
+        at = c(0, 0.25, 0.5, 0.75, 1),
+        labels = c("0", "0.25", "0.5", "0.75", "1")
+    ),
+    
+    row_names_gp = gpar(fontsize = 11),
+    column_names_gp = gpar(fontsize = 10),
+    column_title_gp = gpar(fontsize = 12)
+))
+dev.off()
+```
+
+
+
+###---split between ED and TE
+```{r}
+hypoE_hyperL <- import("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/dunnart_d9_vs_sperm.DMRs_hypo0.1.bed") #267686
+bigtable <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMRs_sperm_EPI_TE/bigtable/sperm_E9epi_E9te_bigtable.tsv")
+CpG <- c(bigtable, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bigtable)[,-c(1:5)]  
+
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub("\\.(C|cov)$", "", colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+
+
+hypoE_hyperL <- subsetByOverlaps(hypoE_hyperL, CpG)
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, hypoE_hyperL, a, b, minCov=3)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+x<- as.data.frame(av_meth)
+
+#chr5   94453164-94462960 - hypo both
+mcols(hypoE_hyperL) <- cbind(mcols(hypoE_hyperL), x)
+
+E9epi_hypo <- hypoE_hyperL[which(hypoE_hyperL$E9epi_r1 <= 0.1)]
+
+hypoE_hyperL$delta_d9epi_sperm <- hypoE_hyperL$E9epi_r1  - (hypoE_hyperL$sperm_r1 + hypoE_hyperL$sperm_r2)/2
+hypoE_hyperL$delta_d9te_sperm <- hypoE_hyperL$E9te_r1  - (hypoE_hyperL$sperm_r1 + hypoE_hyperL$sperm_r2)/2
+
+hypoE_hyperL$E9epi_class <- ifelse(hypoE_hyperL$E9epi_r1 <= 0.2 & hypoE_hyperL$delta_d9epi_sperm < -0.3, "hypo", "not_hypo")
+hypoE_hyperL$E9te_class <- ifelse(hypoE_hyperL$E9te_r1 <= 0.2 & hypoE_hyperL$delta_d9te_sperm < -0.3, "hypo", "not_hypo")
+
+hypoE_hyperL$class <- paste0(hypoE_hyperL$E9epi_class, sep="_", hypoE_hyperL$E9te_class)
+
+```
+
+
+```{r}
+library(ComplexHeatmap)
+library(circlize)
+
+# Extract methylation data
+meth_data <- as.data.frame(mcols(hypoE_hyperL)[, c("E9epi_r1", "E9te_r1", "sperm_r1", "sperm_r2")])
+
+# Extract classification columns
+E9epi_class <- mcols(hypoE_hyperL)$E9epi_class
+E9te_class <- mcols(hypoE_hyperL)$E9te_class
+
+# Create combined classification for grouping
+combined_class <- paste(E9epi_class, E9te_class, sep="_")
+
+# Calculate average methylation for each combined class
+unique_classes <- unique(combined_class)
+averaged_data <- matrix(nrow = length(unique_classes), ncol = ncol(meth_data))
+colnames(averaged_data) <- colnames(meth_data)
+rownames(averaged_data) <- unique_classes
+
+# Calculate averages for each class combination
+for(i in 1:length(unique_classes)) {
+    class_idx <- which(combined_class == unique_classes[i])
+    averaged_data[i, ] <- colMeans(meth_data[class_idx, ], na.rm = TRUE)
+}
+
+# Count number of regions in each class
+class_counts <- table(combined_class)
+
+# Create row labels with counts
+row_labels_with_counts <- paste0(rownames(averaged_data), 
+                                  " (n=", class_counts[rownames(averaged_data)], ")")
+
+# Order the rows for better visualization
+# Priority: hypo_hypo, hypo_not_hypo, not_hypo_hypo, not_hypo_not_hypo
+row_order <- c(
+    grep("^hypo_hypo$", rownames(averaged_data)),
+    grep("^hypo_not_hypo$", rownames(averaged_data)),
+    grep("^not_hypo_hypo$", rownames(averaged_data)),
+    grep("^not_hypo_not_hypo$", rownames(averaged_data))
+)
+row_order <- row_order[row_order > 0]  # Remove any missing patterns
+
+averaged_data_ordered <- averaged_data[row_order, ]
+row_labels_ordered <- row_labels_with_counts[row_order]
+
+# Create the heatmap
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/figures/")
+pdf("hypoE_hyperL_methylation_by_class.pdf", width = 8, height = 6)
+ht <- Heatmap(
+    averaged_data_ordered,
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+
+    col = colorRamp2(c(0, 0.5, 1), c("blue", "white", "red")),
+
+    rect_gp = gpar(col = "white", lwd = 1),
+
+    cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(sprintf("%.3f", averaged_data_ordered[i, j]), 
+                  x, y, gp = gpar(fontsize = 10))
+    },
+
+    row_labels = row_labels_ordered,
+    column_title = "Average Methylation by E9epi and E9te Classification",
+    name = "Methylation",
+
+    width = unit(10, "cm"),
+    height = unit(length(row_order) * 1.5, "cm"),
+
+    row_names_gp = gpar(fontsize = 11),
+    column_names_gp = gpar(fontsize = 11),
+    column_title_gp = gpar(fontsize = 14),
+
+    heatmap_legend_param = list(
+        title = "Methylation",
+        at = c(0, 0.25, 0.5, 0.75, 1),
+        labels = c("0%", "25%", "50%", "75%", "100%"),
+        legend_height = unit(4, "cm")
+    )
+)
+
+draw(ht)
+dev.off()
+
+```
+
+```{r}
+hypoE_hyperL_hypo_hypo <- hypoE_hyperL[which(hypoE_hyperL$class=="hypo_hypo")]
+
+library(data.table)
+genes <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/X_chr/GTF_liftoff_final_genome/dunnart_male_T2T_GENES.bed")
+genes <- as.data.frame(genes)
+genes_gr <- GRanges(seqnames = genes$V1, ranges=IRanges(start=genes$V2, end=genes$V3), strand=genes$V6, name=genes$V4)
+```
+
+```{r}
+library(GenomicRanges)
+hits <- findOverlaps(hypoE_hyperL_hypo_hypo, genes_gr)
+
+overlap_genes <- mcols(genes_gr)$name[subjectHits(hits)]
+
+# Add gene names to DMR metadata (can be multiple hits per region)
+mcols(hypoE_hyperL_hypo_hypo)$gene <- NA_character_
+mcols(hypoE_hyperL_hypo_hypo)$gene[queryHits(hits)] <- overlap_genes
+
+write.table(unique(hypoE_hyperL_hypo_hypo$gene), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/hypoE_hyperL_DMRs_E9epi_hypo_GENE_NAME.txt", sep = "\t", quote= FALSE, row.names = FALSE, col.names = FALSE)
+
+dunnart_mouse <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Annotations/Dunnart_asm_12-2021_sm.protein.geneID__v__Mus_musculus.GRCm39.pep.all.tsv")
+dunnart_mouse <- as.data.frame(dunnart_mouse)
+
+hypoE_hyperL_hypo_hypo_df <- as.data.frame(hypoE_hyperL_hypo_hypo)
+
+hypoE_hyperL_hypo_hypo_df_mouse <- merge(hypoE_hyperL_hypo_hypo_df, dunnart_mouse, by.x="gene", by.y="Dunnart_asm_12-2021_sm.protein.geneID")
+# Subset rows where the last column does NOT contain a comma
+filtered_genes <- hypoE_hyperL_hypo_hypo_df_mouse[!grepl(",", hypoE_hyperL_hypo_hypo_df_mouse$Mus_musculus.GRCm39.pep.all), ]
+
+# Remove version numbers from gene IDs in the last column
+filtered_genes$Mus_musculus.GRCm39.pep.all <- sub("\\..*$", "", filtered_genes$Mus_musculus.GRCm39.pep.all)
+
+write.table(unique(filtered_genes$Mus_musculus.GRCm39.pep.all), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/hypoE_hyperL_DMRs_E9epi_hypo_GENE_NAME_mouse.txt", sep = "\t", quote= FALSE, row.names = FALSE, col.names = FALSE)
+
+
+#background
+genes_gr_all_mouse <- merge(genes_df, dunnart_mouse, by.x="name", by.y="Dunnart_asm_12-2021_sm.protein.geneID")
+# Subset rows where the last column does NOT contain a comma
+filtered_genes_all <- genes_gr_all_mouse[!grepl(",", genes_gr_all_mouse$Mus_musculus.GRCm39.pep.all), ]
+
+# Remove version numbers from gene IDs in the last column
+filtered_genes_all$Mus_musculus.GRCm39.pep.all <- sub("\\..*$", "", filtered_genes_all$Mus_musculus.GRCm39.pep.all)
+
+write.table(unique(filtered_genes_all$Mus_musculus.GRCm39.pep.all), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes//gene_bodies_all_GENE_NAME_mouse.txt", sep = "\t", quote= FALSE, row.names = FALSE, col.names = FALSE)
+
+```
+
+```{r}
+
+CpG <- c(bigtable, ignore.mcols=TRUE)
+values(CpG) <- as.data.frame(bigtable)[,-c(1:5)]  
+genes_gr<-subsetByOverlaps(genes_gr, CpG, ignore.strand = FALSE) 
+
+col<-seq(1, ncol(mcols(CpG)), by=2)
+names <- sub("\\.(C|cov)$", "", colnames(mcols(CpG))[col])
+col <- setNames(col, names)
+
+
+
+av_meth <- mapply(function(a, b){overlapRatios(CpG, genes_gr, a, b, minCov=3)}, a = col, b = col+1) # calculates methylation ratio using .C and .cov of adjacent columns 
+
+x<- as.data.frame(av_meth)
+mcols(genes_gr) <- cbind(mcols(genes_gr), x)
+
+saveRDS(genes_gr, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/gene_bodies_mincov3_mC.rds")
+
+genes_gr$delta <- (genes_gr$sperm_r1 + genes_gr$sperm_r2)/2 - genes_gr$E9epi_r1
+genes_gr_low <- genes_gr[which(genes_gr$E9epi_r1 <= 0.1 & genes_gr$delta >= 0.2)]
+gene_body_low <- subsetByOverlaps(hypoE_hyperL_hypo_hypo, genes_gr_low)
+saveRDS(gene_body_low, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/gene_bodies_hypo_E9epi.rds")
+gene_body_low_df <- as.data.frame(gene_body_low)
+
+gene_body_low_mouse <- merge(gene_body_low_df, dunnart_mouse, by.x="gene", by.y="Dunnart_asm_12-2021_sm.protein.geneID")
+# Subset rows where the last column does NOT contain a comma
+filtered_genes <- gene_body_low_mouse[!grepl(",", gene_body_low_mouse$Mus_musculus.GRCm39.pep.all), ]
+
+# Remove version numbers from gene IDs in the last column
+filtered_genes$Mus_musculus.GRCm39.pep.all <- sub("\\..*$", "", filtered_genes$Mus_musculus.GRCm39.pep.all)
+
+write.table(unique(filtered_genes$Mus_musculus.GRCm39.pep.all), "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/hypoE_hyperL_DMRs_E9epi_hypo_genebody_hypo_GENE_NAME_mouse.txt", sep = "\t", quote= FALSE, row.names = FALSE, col.names = FALSE)
+
+filtered_genes <- read.table("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/hypoE_hyperL_DMRs_E9epi_hypo_genebody_hypo_GENE_NAME_mouse.txt")
+#CXCR4
+#EOMES
+#EPOP
+#DMRTA2
+#ZIC4
+#SIX3
+#PITX1
+#POU5F1
+#PAX6
+
+
+```
+
+
+```{r}
+library(pheatmap)
+
+genes_demeth <- subsetByOverlaps(genes_gr_low, hypoE_hyperL_hypo_hypo)
+genes_demeth <- unique(genes_demeth)
+genes_demeth <- genes_demeth[which(genes_demeth$name %in% filtered_genes$gene)]
+
+df <- as.data.frame(genes_demeth)
+rownames(df) <- df$name
+
+
+# Drop the gene_name column (pheatmap needs numeric matrix)
+expr_matrix <- as.matrix(df[, -c(1:6)])
+expr_matrix.na <- expr_matrix[complete.cases(expr_matrix),]
+
+# Make heatmap
+
+
+
+```
+
+
+```{r}
+# Reorder columns first
+expr_matrix.na_reordered <- expr_matrix.na[, c("sperm_r1", "sperm_r2", "E9epi_r1", "E9te_r1")]
+
+# Define color scale
+breaksList <- seq(0, 1, by = 0.02)
+myColor <- colorRampPalette(c("navy", "white", "firebrick3"))(length(breaksList)-1)
+
+
+
+# Ward clustering with cluster coloring (no gaps_row)
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/")
+pdf("gene_body_hypometh_E9epi_ov_hypoDMRs_mC_mincov3_heatmap_eucledian_average_v4.pdf", useDingbats=FALSE, width=5, height=5)
+print(pheatmap(expr_matrix.na_reordered,
+         clustering_distance_rows = "euclidean",
+         clustering_method = "ward.D2",
+         gaps_col = c(2),
+         cluster_cols = FALSE,
+         scale = "none",
+         color = myColor,
+         breaks = breaksList,
+         fontsize_row = 6,
+         fontsize_col = 10,
+         show_rownames = TRUE,
+         cutree_rows = 4,  # This will color-code 4 clusters
+         main = "Gene Body 5mC Dynamics - Ward Clustering"))
+dev.off()
+
+
+```
+
+
+
+#BP
+```{r}
+go <- fread("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/gprofiler_hypoE_hyperL_DMRs_E9epi_hypo_genebody_hypo_GENE_NAME_mouse.csv")
+go <- as.data.frame(go)
+go <- go[,c(1:10)]
+
+go_bp <- go[which(go$source == "GO:BP"),]
+
+##go_hp <- go_hp[which(go_hp$highlighted=="TRUE"),]
+go_bp$term_name <- factor(go_bp$term_name, levels = go_bp$term_name[order(go_bp$negative_log10_of_adjusted_p_value)])
+
+go_bp$term_size_div_domain_size <- go_bp$term_size / go_bp$effective_domain_size *100
+go_bp$intersection_size_div_query_size <- go_bp$intersection_size / go_bp$query_size *100
+go_bp$FoldEnrichment <- go_bp$intersection_size_div_query_size / go_bp$term_size_div_domain_size
+
+write.table(go_bp, "/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/gprofiler_hypoE_hyperL_DMRs_E9epi_hypo_genebody_hypo_GENE_NAME_mouse_GO_BP.txt", quote = FALSE, sep="\t")
+
+
+library(dplyr)
+
+# Add a column with asterisks for significant terms
+go_bp <- go_bp %>%
+  mutate(label = ifelse(adjusted_p_value < 0.05, "*", ""))
+#go_hp <- go_hp[order(-go_hp$adjusted_p_value),]
+go_bp1 <- go_bp[c(1:15),]
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/")
+pdf("dunnart_gene_bodies_hypometh_mC_ov_E9epi_hypoDMRs_GO_BP_barplot.pdf", useDingbats=FALSE, width=8, height=8) 
+print(ggplot(data = go_bp1, aes(x = term_name, y = negative_log10_of_adjusted_p_value)) +
+    geom_bar(stat = "identity", width = 0.4) +
+    geom_hline(yintercept = 1, color = "red", linetype = "dashed") +
+    geom_text(aes(label = label), hjust = -0.2, size = 8) +          
+    coord_flip() +
+    theme_minimal() +
+    labs(x = "GO Human Phenotype", y = "-log10(adjusted p-value)"))
+dev.off()
+
+```
+
+
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(dplyr)
+
+# clean up term names (wrap long labels)
+go_bp1 <- go_bp1 %>%
+  mutate(term_name_wrapped = stringr::str_wrap(term_name, width = 30))
+
+# Create the balloon plot
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/")
+pdf("dunnart_gene_bodies_hypometh_mC_ov_E9epi_hypoDMRs_GO_BP_balloon_plot.pdf", useDingbats=FALSE, width=8, height=8) 
+print(ggplot(go_bp1, aes(x = FoldEnrichment,
+                  y = reorder(term_name_wrapped, FoldEnrichment),
+                  size = intersection_size_div_query_size,
+                  color = adjusted_p_value)) +
+  geom_point(alpha = 0.8) +
+  scale_size_continuous(range = c(3, 10)) +
+  scale_color_viridis_c(option = "plasma", direction = -1) +
+  labs(
+    x = "Fold Enrichment",
+    y = "GO Biological Process",
+    size = "Percentage of genes in GO term",
+    color = "-log10(adj. p-value)",
+    title = "GO:BP Enrichment Balloon Plot"
+  ) +
+  xlim(0, 45) +
+  theme_pubr() +
+  theme(
+    legend.position = "right",
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ))
+dev.off()
+
+```
+
+
+
+
+
+
+###---expression of hypo genes in the mouse embryo
+#https://tome.gs.washington.edu/
+```{r}
+e5.25 <- readRDS("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/Public/scRNAseq_mouse_TOME_WASHU/seurat_object_E5.25.rds")
+
+
+library(Seurat)
+library(ggplot2)
+
+# First, check if UMAP already exists
+if("umap" %in% names(e5.25@reductions)) {
+  # UMAP already computed, just plot it
+  DimPlot(e5.25, reduction = "umap", pt.size = 1) + 
+    ggtitle("e5.25 Mouse Embryo - UMAP")
+} else {
+  # Need to process the data first
+  
+  # 1. Normalize the data
+  e5.25 <- NormalizeData(e5.25)
+  
+  # 2. Find variable features
+  e5.25 <- FindVariableFeatures(e5.25, selection.method = "vst", nfeatures = 2000)
+  
+  # 3. Scale the data
+  e5.25 <- ScaleData(e5.25)
+  
+  # 4. Run PCA
+  e5.25 <- RunPCA(e5.25, features = VariableFeatures(object = e5.25))
+  
+  # 5. Find neighbors
+  e5.25 <- FindNeighbors(e5.25, dims = 1:30)
+  
+  # 6. Find clusters
+  e5.25 <- FindClusters(e5.25, resolution = 0.5)
+  
+  # 7. Run UMAP
+  e5.25 <- RunUMAP(e5.25, dims = 1:30)
+  
+  # 8. Plot UMAP
+  DimPlot(e5.25, reduction = "umap", pt.size = 1) + 
+    ggtitle("e5.25 Mouse Embryo - UMAP")
+}
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/invariant/final_T2T_genome/gene_bodies/Figures/")
+pdf("dunnart_gene_bodies_retain_mC_E9te_expr_in_mouse_e5.25_UMAP.pdf", useDingbats=FALSE, width=5, height=5) 
+print(DimPlot(e5.25, reduction = "umap", pt.size = 1) + 
+    ggtitle("e5.25 Mouse Embryo - UMAP"))
+dev.off()
+```
+
+
+
+```{r}
+sce_filt <- e5.25
+all <- rownames(sce_filt)
+gene_list <- unique(filtered_genes$V1)
+features <- all[all %in% gene_list]
+cell_typeA_marker_gene_list <- list(c(features))
+
+# Calculate module score
+e5.25 <- AddModuleScore(object = e5.25, 
+                        features = cell_typeA_marker_gene_list, 
+                        name = "cell_typeA_score")
+
+# the distribution of raw module scores
+summary(e5.25$cell_typeA_score1)
+#     Min.   1st Qu.    Median      Mean   3rd Qu.      Max. 
+#-0.044166 -0.022923 -0.006442 -0.006477  0.004794  0.065430
+
+FeaturePlot(object = e5.25, 
+            features = "cell_typeA_score1",  
+            order = TRUE, 
+            pt.size = 4, 
+) & scale_color_gradientn(
+  colours = c("#3B9AB2", "#78B7C5", "#E1AF00", "#F21A00", "darkred"),
+  limits = c(-0.05, 0.06)  # set to min/max of your z-scores
+)
+
+
+
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/")
+pdf("dunnart_gene_bodies_lose_mC_E9epi_expr_in_mouse_e5.25_UMAP_module_score.pdf", useDingbats = FALSE, width = 6, height = 5)
+print(FeaturePlot(
+  object = e5.25,
+  features = "cell_typeA_score1",
+  reduction = "umap",
+  order = TRUE,
+  pt.size = 4
+) + 
+  scale_color_gradientn(
+    colours = c("#3B9AB2", "#78B7C5", "#E1AF00", "#F21A00", "darkred"),
+    limits = c(-0.05, 0.06)
+  ) +
+  labs(title = "E5.25 Mouse Embryo - Module Score",
+       x = "UMAP 1", 
+       y = "UMAP 2") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.title = element_text(face = "bold")))
+dev.off()
+
+# Violin plot by cell type
+setwd("/Users/ksenia/Documents/Lab_Garvan/projects/marsupials/EMseq_final_genome/DMCs_DMRcate/DMRs/hypo_EPI_genes/")
+pdf("dunnart_gene_bodies_lose_mC_E9epi_expr_in_mouse_e5.25_violin_module_score.pdf", 
+    useDingbats = FALSE, 
+    width = 8, 
+    height = 5)
+print(VlnPlot(
+  object = e5.25,
+  features = "cell_typeA_score1",
+  group.by = "cell_type",
+  pt.size = 0,
+  cols = c("#E64B35", "#4DBBD5", "#00A087", "#3C5488", 
+           "#F39B7F", "#8491B4", "#91D1C2", "#DC0000",
+           "#7E6148", "#B09C85", "#FF7F00", "#FFDB00")
+) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Module Score by Cell Type",
+       y = "Module Score"))
+dev.off()
+```
+
+
